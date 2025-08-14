@@ -138,11 +138,18 @@ void ttStore(const Board &board, int depth, int value, int alpha, int beta)
 // Evaluation
 int evaluateBoard(const Board &board, int plyFromRoot = 0)
 {
+
     if (board.isHalfMoveDraw())
         return board.getHalfMoveDrawType().first == GameResultReason::CHECKMATE ? -(100000 - plyFromRoot) : 0;
 
     if (board.isRepetition())
         return 0;
+
+    Movelist moves;
+    movegen::legalmoves(moves, board);
+    bool inCheck = board.inCheck();
+    if (moves.empty())
+        return inCheck ? -(100000 - plyFromRoot) : 0;
 
     int score = 0;
 
@@ -157,8 +164,6 @@ int evaluateBoard(const Board &board, int plyFromRoot = 0)
     }
 
     // Mobility bonus
-    chess::Movelist moves;
-    movegen::legalmoves(moves, board);
     score += 10 * moves.size();
 
     return board.sideToMove() == Color::WHITE ? score : -score;
@@ -193,17 +198,13 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
 
 // Negamax
 int negamax(Board &board, int depth, int alpha, int beta,
-            std::chrono::steady_clock::time_point start, double timeLimit, int plyFromRoot)
+            std::chrono::steady_clock::time_point start, double timeLimit, int plyFromRoot, bool& timedOut)
 {
     using namespace std::chrono;
-    if (duration<double>(steady_clock::now() - start).count() > timeLimit)
-        return 0; // timeout
-
-    if (board.isHalfMoveDraw())
-        return board.getHalfMoveDrawType().first == GameResultReason::CHECKMATE ? -(100000 - plyFromRoot) : 0;
-
-    if (board.isRepetition())
+    if (duration<double>(steady_clock::now() - start).count() > timeLimit) {
+        timedOut = true;
         return 0;
+    }
 
     auto ttVal = ttLookup(board, depth, alpha, beta);
     if (ttVal.has_value())
@@ -221,7 +222,7 @@ int negamax(Board &board, int depth, int alpha, int beta,
     for (auto move : orderedMoves)
     {
         board.makeMove(move);
-        int score = negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1);
+        int score = negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
         score = -score;
         board.unmakeMove(move);
 
@@ -261,7 +262,7 @@ Move findBestMove(Board &board, int depth,
         }
 
         board.makeMove(move);
-        int score = negamax(board, depth - 1, -beta, -alpha, start, timeLimit, 1);
+        int score = negamax(board, depth - 1, -beta, -alpha, start, timeLimit, 1, timedOut);
         board.unmakeMove(move);
         score = -score;
         if (score > bestScore)
