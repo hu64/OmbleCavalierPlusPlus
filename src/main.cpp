@@ -21,11 +21,8 @@ int getPieceValue(const Board &board, Square sq)
 }
 
 // Order moves by heuristic: captures, checks, promotions
-std::vector<Move> orderMoves(Board &board)
+std::vector<Move> orderMoves(Board &board, Movelist &moves)
 {
-    chess::Movelist moves;
-    movegen::legalmoves(moves, board);
-
     // Pair of <score, move>
     std::vector<std::pair<int, Move>> scoredMoves;
 
@@ -180,7 +177,7 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
 
     chess::Movelist moves;
     movegen::legalmoves(moves, board);
-    std::vector<Move> orderedMoves = orderMoves(board);
+    std::vector<Move> orderedMoves = orderMoves(board, moves);
     for (auto move : orderedMoves)
     {
         if (!board.isCapture(move))
@@ -218,7 +215,7 @@ int negamax(Board &board, int depth, int alpha, int beta,
 
     chess::Movelist moves;
     movegen::legalmoves(moves, board);
-    std::vector<Move> orderedMoves = orderMoves(board);
+    std::vector<Move> orderedMoves = orderMoves(board, moves);
     for (auto move : orderedMoves)
     {
         board.makeMove(move);
@@ -250,7 +247,7 @@ Move findBestMove(Board &board, int depth,
 
     chess::Movelist moves;
     movegen::legalmoves(moves, board);
-    std::vector<Move> orderedMoves = orderMoves(board);
+    std::vector<Move> orderedMoves = orderMoves(board, moves);
     for (auto move : orderedMoves)
     {
         double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
