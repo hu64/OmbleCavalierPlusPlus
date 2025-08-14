@@ -327,12 +327,7 @@ int main()
                 }
             }
 
-            // Python equivalent: time_limit = total_time_remaining / max(10, 40 - (len(history)/2))
-            // Here, moveNumber is already half-moves / 2
-            int movesRemainingFactor = std::max(10, 40 - moveNumber);
-            double time_limit = total_time_remaining / movesRemainingFactor;
-
-            Move best = findBestMoveIterative(board, searchDepth, time_limit);
+            Move best = findBestMoveIterative(board, searchDepth, total_time_remaining);
             std::cout << "bestmove " << uci::moveToUci(best) << "\n";
         }
         else if (line == "quit")
