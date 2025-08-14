@@ -138,7 +138,6 @@ int negamax(Board &board, int depth, int alpha, int beta,
     if (board.isRepetition())
         return 0;
 
-
     auto ttVal = ttLookup(board, depth, alpha, beta);
     if (ttVal.has_value())
         return ttVal.value();
@@ -155,7 +154,8 @@ int negamax(Board &board, int depth, int alpha, int beta,
     for (auto move : moves)
     {
         board.makeMove(move);
-        int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1);
+        int score = negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1);
+        score = -score;
         board.unmakeMove(move);
 
         if (score > bestScore)
@@ -170,32 +170,84 @@ int negamax(Board &board, int depth, int alpha, int beta,
     return bestScore;
 }
 
-// Iterative deepening
-Move findBestMoveIterative(Board &board, int maxDepth, double timeLimit)
+Move findBestMove(Board &board, int depth,
+                  std::chrono::steady_clock::time_point start, double timeLimit,
+                  bool &timedOut)
 {
     Move bestMove = Move::NULL_MOVE;
-    auto start = std::chrono::steady_clock::now();
+    int bestScore = -88888;
+    int alpha = -88888;
+    int beta = 88888;
+    timedOut = false;
 
     chess::Movelist moves;
     movegen::legalmoves(moves, board);
-    if (moves.empty())
-        return bestMove;
 
+    for (auto move : moves)
+    {
+        double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        if (elapsed > timeLimit)
+        {
+            std::cout << "info string Time limit reached in find best move, stopping search\n";
+            timedOut = true;
+            break;
+        }
+
+        board.makeMove(move);
+        int score = negamax(board, depth - 1, -beta, -alpha, start, timeLimit, 1);
+        board.unmakeMove(move);
+        score = -score;
+        if (score > bestScore)
+        {
+            bestScore = score;
+            bestMove = move;
+        }
+
+        alpha = std::max(alpha, score);
+        std::cout << "info score cp " << score << " pv " << uci::moveToUci(move) << "\n";
+    }
+
+    return bestMove;
+}
+
+Move findBestMoveIterative(Board &board, int maxDepth, double totalTimeRemaining)
+{
+    int moveNumber = board.fullMoveNumber();
+    double timeLimit = totalTimeRemaining / std::max(10, 40 - moveNumber);
+    auto start = std::chrono::steady_clock::now();
+
+    chess::Movelist legalMoves;
+    movegen::legalmoves(legalMoves, board);
+    if (legalMoves.empty())
+    {
+        std::cout << "info string No legal moves available\n";
+        return Move::NULL_MOVE;
+    }
+
+    Move bestMove = legalMoves[0];
     for (int depth = 1; depth <= maxDepth; ++depth)
     {
-        int bestScore = -1000000;
-        for (auto move : moves)
+        std::cout << "info string Searching at depth " << depth << "\n";
+        bool timedOut = false;
+        Move move = findBestMove(board, depth, start, timeLimit, timedOut);
+
+        if (!timedOut && std::find(legalMoves.begin(), legalMoves.end(), move) != legalMoves.end())
         {
-            board.makeMove(move);
-            int score = -negamax(board, depth - 1, -1000000, 1000000, start, timeLimit, 1);
-            board.unmakeMove(move);
-            if (score > bestScore)
-            {
-                bestScore = score;
-                bestMove = move;
-            }
+            bestMove = move;
+            std::cout << "info string Best move at depth " << depth << ": " << uci::moveToUci(bestMove) << "\n";
+        }
+        else if (timedOut)
+        {
+            std::cout << "info string Search interrupted by time, keeping previous best move\n";
+            break;
+        }
+        else
+        {
+            std::cout << "info string No legal moves found\n";
+            break;
         }
     }
+
     return bestMove;
 }
 
@@ -243,7 +295,44 @@ int main()
         }
         else if (line.rfind("go", 0) == 0)
         {
-            Move best = findBestMoveIterative(board, depth, 5.0);
+            double total_time_remaining = 5.0;       // default seconds
+            int moveNumber = board.fullMoveNumber(); // depends on your Board API
+            int searchDepth = depth;
+
+            std::istringstream ss(line);
+            std::string token;
+            while (ss >> token)
+            {
+                if (token == "depth")
+                {
+                    ss >> searchDepth;
+                }
+                else if (token == "movetime")
+                {
+                    int ms;
+                    ss >> ms;
+                    total_time_remaining = ms / 1000.0;
+                }
+                else if (token == "wtime" && board.sideToMove() == chess::Color::WHITE)
+                {
+                    int ms;
+                    ss >> ms;
+                    total_time_remaining = ms / 1000.0;
+                }
+                else if (token == "btime" && board.sideToMove() == chess::Color::BLACK)
+                {
+                    int ms;
+                    ss >> ms;
+                    total_time_remaining = ms / 1000.0;
+                }
+            }
+
+            // Python equivalent: time_limit = total_time_remaining / max(10, 40 - (len(history)/2))
+            // Here, moveNumber is already half-moves / 2
+            int movesRemainingFactor = std::max(10, 40 - moveNumber);
+            double time_limit = total_time_remaining / movesRemainingFactor;
+
+            Move best = findBestMoveIterative(board, searchDepth, time_limit);
             std::cout << "bestmove " << uci::moveToUci(best) << "\n";
         }
         else if (line == "quit")
