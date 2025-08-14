@@ -11,6 +11,72 @@ using namespace chess;
 // Material values
 static const int MATERIAL_VALUES[6] = {100, 320, 330, 500, 900, 60000};
 
+// Returns material value of a piece on a square
+int getPieceValue(const Board &board, Square sq)
+{
+    Piece piece = board.at(sq);
+    if (piece == Piece::NONE)
+        return 0;
+    return MATERIAL_VALUES[(int)piece.type()];
+}
+
+// Order moves by heuristic: captures, checks, promotions
+std::vector<Move> orderMoves(Board &board)
+{
+    chess::Movelist moves;
+    movegen::legalmoves(moves, board);
+
+    // Pair of <score, move>
+    std::vector<std::pair<int, Move>> scoredMoves;
+
+    for (auto move : moves)
+    {
+        int score = 0;
+
+        board.makeMove(move);
+        bool isCheck = board.inCheck();
+        board.unmakeMove(move);
+
+        if (isCheck)
+        {
+            score = 200;
+        }
+        else if (board.isCapture(move))
+        {
+            int capturedValue = getPieceValue(board, move.to());
+            int capturingValue = getPieceValue(board, move.from());
+            score = 100 + ((capturedValue - capturingValue) / 100);
+        }
+        else if (move.typeOf() == chess::Move::PROMOTION)
+        {
+            score = 90;
+        }
+        else if (move.typeOf() == chess::Move::CASTLING)
+        {
+            score = 80;
+        }
+        else if (move.typeOf() == chess::Move::ENPASSANT)
+        {
+            score = 50;
+        }
+        scoredMoves.push_back({score, move});
+    }
+
+    // Sort moves by score descending
+    std::sort(scoredMoves.begin(), scoredMoves.end(),
+              [](const std::pair<int, Move> &a, const std::pair<int, Move> &b)
+              {
+                  return a.first > b.first;
+              });
+
+    // Extract sorted moves
+    std::vector<Move> ordered;
+    for (auto &p : scoredMoves)
+        ordered.push_back(p.second);
+
+    return ordered;
+}
+
 // Transposition table
 struct TTEntry
 {
@@ -109,7 +175,8 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
 
     chess::Movelist moves;
     movegen::legalmoves(moves, board);
-    for (auto move : moves)
+    std::vector<Move> orderedMoves = orderMoves(board);
+    for (auto move : orderedMoves)
     {
         if (!board.isCapture(move))
             continue;
@@ -150,8 +217,8 @@ int negamax(Board &board, int depth, int alpha, int beta,
 
     chess::Movelist moves;
     movegen::legalmoves(moves, board);
-
-    for (auto move : moves)
+    std::vector<Move> orderedMoves = orderMoves(board);
+    for (auto move : orderedMoves)
     {
         board.makeMove(move);
         int score = negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1);
@@ -182,8 +249,8 @@ Move findBestMove(Board &board, int depth,
 
     chess::Movelist moves;
     movegen::legalmoves(moves, board);
-
-    for (auto move : moves)
+    std::vector<Move> orderedMoves = orderMoves(board);
+    for (auto move : orderedMoves)
     {
         double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
         if (elapsed > timeLimit)
