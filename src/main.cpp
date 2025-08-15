@@ -354,15 +354,6 @@ int evaluateBoard(const Board &board, int plyFromRoot)
 
     int score = 0;
 
-    // for (PieceType pt : {PieceType::PAWN, PieceType::KNIGHT, PieceType::BISHOP,
-    //                      PieceType::ROOK, PieceType::QUEEN, PieceType::KING})
-    // {
-    //     chess::Bitboard wbb = board.pieces(pt, Color::WHITE);
-    //     chess::Bitboard bbb = board.pieces(pt, Color::BLACK);
-    //     score += (int)wbb.count() * MATERIAL_VALUES[(int)pt];
-    //     score -= (int)bbb.count() * MATERIAL_VALUES[(int)pt];
-    // }
-
     // Material and PST
     for (Color color : {Color::WHITE, Color::BLACK})
     {
@@ -406,6 +397,18 @@ int evaluateBoard(const Board &board, int plyFromRoot)
         }
     }
 
+    // --- Bishop pair bonus ---
+    // Give a bonus if a side has two or more bishops
+    const int BISHOP_PAIR_BONUS = 40;
+    for (Color color : {Color::WHITE, Color::BLACK})
+    {
+        int count = board.pieces(PieceType::BISHOP, color).count();
+        if (count >= 2)
+        {
+            score += (color == Color::WHITE ? 1 : -1) * BISHOP_PAIR_BONUS;
+        }
+    }
+
     // Pawn structure
     score += pawnStructure(board, Color::WHITE);
     score -= pawnStructure(board, Color::BLACK);
@@ -422,7 +425,7 @@ int evaluateBoard(const Board &board, int plyFromRoot)
         score += 10;
     else
         score -= 10;
-        
+
     if (board.sideToMove() == Color::BLACK)
         score = -score;
 
