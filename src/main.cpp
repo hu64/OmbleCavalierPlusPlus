@@ -13,6 +13,89 @@ using namespace chess;
 // Material values
 static const int MATERIAL_VALUES[6] = {100, 320, 330, 500, 900, 60000};
 
+// Piece-square tables (values for white, black uses mirrored)
+static const int PAWN_PST[64] = {
+    0, 0, 0, 0, 0, 0, 0, 0,
+    50, 50, 50, 50, 50, 50, 50, 50,
+    10, 10, 20, 30, 30, 20, 10, 10,
+    5, 5, 10, 25, 25, 10, 5, 5,
+    0, 0, 0, 20, 20, 0, 0, 0,
+    5, -5, -10, 0, 0, -10, -5, 5,
+    5, 10, 10, -20, -20, 10, 10, 5,
+    0, 0, 0, 0, 0, 0, 0, 0};
+static const int KNIGHT_PST[64] = {
+    -50, -40, -30, -30, -30, -30, -40, -50,
+    -40, -20, 0, 0, 0, 0, -20, -40,
+    -30, 0, 10, 15, 15, 10, 0, -30,
+    -30, 5, 15, 20, 20, 15, 5, -30,
+    -30, 0, 15, 20, 20, 15, 0, -30,
+    -30, 5, 10, 15, 15, 10, 5, -30,
+    -40, -20, 0, 5, 5, 0, -20, -40,
+    -50, -40, -30, -30, -30, -30, -40, -50};
+static const int BISHOP_PST[64] = {
+    -20, -10, -10, -10, -10, -10, -10, -20,
+    -10, 0, 0, 0, 0, 0, 0, -10,
+    -10, 0, 5, 10, 10, 5, 0, -10,
+    -10, 5, 5, 10, 10, 5, 5, -10,
+    -10, 0, 10, 10, 10, 10, 0, -10,
+    -10, 10, 10, 10, 10, 10, 10, -10,
+    -10, 5, 0, 0, 0, 0, 5, -10,
+    -20, -10, -10, -10, -10, -10, -10, -20};
+static const int ROOK_PST[64] = {
+    0, 0, 0, 0, 0, 0, 0, 0,
+    5, 10, 10, 10, 10, 10, 10, 5,
+    -5, 0, 0, 0, 0, 0, 0, -5,
+    -5, 0, 0, 0, 0, 0, 0, -5,
+    -5, 0, 0, 0, 0, 0, 0, -5,
+    -5, 0, 0, 0, 0, 0, 0, -5,
+    -5, 0, 0, 0, 0, 0, 0, -5,
+    0, 0, 0, 5, 5, 0, 0, 0};
+static const int QUEEN_PST[64] = {
+    -20, -10, -10, -5, -5, -10, -10, -20,
+    -10, 0, 0, 0, 0, 0, 0, -10,
+    -10, 0, 5, 5, 5, 5, 0, -10,
+    -5, 0, 5, 5, 5, 5, 0, -5,
+    0, 0, 5, 5, 5, 5, 0, -5,
+    -10, 5, 5, 5, 5, 5, 0, -10,
+    -10, 0, 5, 0, 0, 0, 0, -10,
+    -20, -10, -10, -5, -5, -10, -10, -20};
+static const int KING_PST[64] = {
+    -30, -40, -40, -50, -50, -40, -40, -30,
+    -30, -40, -40, -50, -50, -40, -40, -30,
+    -30, -40, -40, -50, -50, -40, -40, -30,
+    -30, -40, -40, -50, -50, -40, -40, -30,
+    -20, -30, -30, -40, -40, -30, -30, -20,
+    -10, -20, -20, -20, -20, -20, -20, -10,
+    20, 20, 0, 0, 0, 0, 20, 20,
+    20, 30, 10, 0, 0, 10, 30, 20};
+
+int pstValue(Piece piece, Square sq)
+{
+    if (piece == Piece::NONE)
+        return 0;
+    int idx = sq.index();
+    // Mirror for black
+    if (piece.color() == Color::BLACK)
+        idx = 56 + (7 - (idx % 8)) - 8 * (idx / 8);
+    switch (piece.type())
+    {
+    case (int)PieceType::PAWN:
+        return PAWN_PST[idx];
+    case (int)PieceType::KNIGHT:
+        return KNIGHT_PST[idx];
+    case (int)PieceType::BISHOP:
+        return BISHOP_PST[idx];
+    case (int)PieceType::ROOK:
+        return ROOK_PST[idx];
+    case (int)PieceType::QUEEN:
+        return QUEEN_PST[idx];
+    case (int)PieceType::KING:
+        return KING_PST[idx];
+    default:
+        return 0;
+    }
+}
+
 // Returns material value of a piece on a square
 int getPieceValue(const Board &board, Square sq)
 {
@@ -140,37 +223,207 @@ void ttStore(const Board &board, int depth, int value, int alpha, int beta)
     TT[boardKey(board)] = entry;
 }
 
-// Evaluation
+// Helper: mirror square for black
+inline int mirror(int idx) { return ((7 - (idx / 8)) * 8) + (idx % 8); }
+
+// Fast bit count for pawn structure
+inline int countBits(chess::Bitboard bb)
+{
+#if __cpp_lib_bitops >= 201907L
+    return std::popcount(bb.getBits());
+#else
+    return __builtin_popcountll(bb.getBits());
+#endif
+}
+
+// King safety: penalty for open files and missing pawn shield
+int kingSafety(const Board &board, Color color)
+{
+    int penalty = 0;
+    Square kingSq = board.kingSq(color);
+    int kfile = kingSq.file();
+    int krank = kingSq.rank();
+
+    // Pawn shield squares in front of king (3 squares)
+    int shieldRank = (color == Color::WHITE) ? krank + 1 : krank - 1;
+    for (int df = -1; df <= 1; ++df)
+    {
+        int f = kfile + df;
+        if (f < 0 || f > 7 || shieldRank < 0 || shieldRank > 7)
+            continue;
+        Square sq = Square(f + shieldRank * 8);
+        Piece p = board.at(sq);
+        if (p.type() != PieceType::PAWN || p.color() != color)
+            penalty += 15; // missing pawn shield
+    }
+
+    // Penalty for open/semi-open files near king
+    for (int df = -1; df <= 1; ++df)
+    {
+        int f = kfile + df;
+        if (f < 0 || f > 7)
+            continue;
+        chess::Bitboard pawns = board.pieces(PieceType::PAWN, color) & chess::Bitboard(File(f));
+        chess::Bitboard oppPawns = board.pieces(PieceType::PAWN, ~color) & chess::Bitboard(File(f));
+        if (!pawns)
+        {
+            penalty += oppPawns ? 10 : 20; // semi-open or open file
+        }
+    }
+    return penalty;
+}
+
+// Pawn structure: doubled, isolated, passed pawns
+int pawnStructure(const Board &board, Color color)
+{
+    int penalty = 0, bonus = 0;
+    chess::Bitboard pawns = board.pieces(PieceType::PAWN, color);
+
+    // Doubled pawns
+    for (int f = 0; f < 8; ++f)
+    {
+        chess::Bitboard filePawns = pawns & chess::Bitboard(File(f));
+        int count = countBits(filePawns);
+        if (count > 1)
+            penalty += 12 * (count - 1);
+    }
+
+    // Isolated pawns
+    for (int f = 0; f < 8; ++f)
+    {
+        chess::Bitboard filePawns = pawns & chess::Bitboard(File(f));
+        if (!filePawns)
+            continue;
+        bool hasLeft = (f > 0) && (pawns & chess::Bitboard(File(f - 1)));
+        bool hasRight = (f < 7) && (pawns & chess::Bitboard(File(f + 1)));
+        if (!hasLeft && !hasRight)
+            penalty += 15 * countBits(filePawns);
+    }
+
+    // Passed pawns
+    chess::Bitboard oppPawns = board.pieces(PieceType::PAWN, ~color);
+    for (int sq = 0; sq < 64; ++sq)
+    {
+        if (!pawns.check(sq))
+            continue;
+        int file = sq % 8;
+        int rank = sq / 8;
+        bool isPassed = true;
+        for (int df = -1; df <= 1; ++df)
+        {
+            int f = file + df;
+            if (f < 0 || f > 7)
+                continue;
+            for (int r = (color == Color::WHITE ? rank + 1 : 0);
+                 (color == Color::WHITE ? r < 8 : r < rank);
+                 r += (color == Color::WHITE ? 1 : 1))
+            {
+                int idx = f + r * 8;
+                if (oppPawns.check(idx))
+                    isPassed = false;
+            }
+        }
+        if (isPassed)
+            bonus += 20;
+    }
+    return bonus - penalty;
+}
+
+// Mobility: number of legal moves for each side
+int mobility(const Board &board, Color color)
+{
+    chess::Movelist moves;
+    Board copy = board;
+    if (copy.sideToMove() != color)
+        copy.makeNullMove();
+    movegen::legalmoves(moves, copy);
+    return moves.size();
+}
+
+// Main evaluation function
 int evaluateBoard(const Board &board, int plyFromRoot)
 {
-    // Draw detection
     if (board.isHalfMoveDraw() || board.isRepetition())
         return 0;
 
-    // Generate fresh legal moves for this position
     chess::Movelist legalMoves;
     movegen::legalmoves(legalMoves, board);
 
-    // Mate / stalemate detection
     if (legalMoves.empty())
         return board.inCheck() ? -(100000 - plyFromRoot) : 0;
 
-    // Material
-    int materialScore = 0;
-    for (PieceType pt : {PieceType::PAWN, PieceType::KNIGHT, PieceType::BISHOP,
-                         PieceType::ROOK, PieceType::QUEEN, PieceType::KING})
+    int score = 0;
+
+    // for (PieceType pt : {PieceType::PAWN, PieceType::KNIGHT, PieceType::BISHOP,
+    //                      PieceType::ROOK, PieceType::QUEEN, PieceType::KING})
+    // {
+    //     chess::Bitboard wbb = board.pieces(pt, Color::WHITE);
+    //     chess::Bitboard bbb = board.pieces(pt, Color::BLACK);
+    //     score += (int)wbb.count() * MATERIAL_VALUES[(int)pt];
+    //     score -= (int)bbb.count() * MATERIAL_VALUES[(int)pt];
+    // }
+
+    // Material and PST
+    for (Color color : {Color::WHITE, Color::BLACK})
     {
-        chess::Bitboard wbb = board.pieces(pt, Color::WHITE);
-        chess::Bitboard bbb = board.pieces(pt, Color::BLACK);
-        materialScore += (int)wbb.count() * MATERIAL_VALUES[(int)pt];
-        materialScore -= (int)bbb.count() * MATERIAL_VALUES[(int)pt];
+        int colorSign = (color == Color::WHITE) ? 1 : -1;
+        for (PieceType pt : {PieceType::PAWN, PieceType::KNIGHT, PieceType::BISHOP,
+                             PieceType::ROOK, PieceType::QUEEN, PieceType::KING})
+        {
+            chess::Bitboard bb = board.pieces(pt, color);
+            int pieceValue = MATERIAL_VALUES[static_cast<int>(pt)];
+            while (bb)
+            {
+                int sq = bb.lsb();
+                bb.clear(sq);
+                score += colorSign * pieceValue;
+                // PST: mirror for black
+                int pstIdx = (color == Color::WHITE) ? sq : mirror(sq);
+                switch (pt)
+                {
+                case (int)PieceType::PAWN:
+                    score += colorSign * PAWN_PST[pstIdx];
+                    break;
+                case (int)PieceType::KNIGHT:
+                    score += colorSign * KNIGHT_PST[pstIdx];
+                    break;
+                case (int)PieceType::BISHOP:
+                    score += colorSign * BISHOP_PST[pstIdx];
+                    break;
+                case (int)PieceType::ROOK:
+                    score += colorSign * ROOK_PST[pstIdx];
+                    break;
+                case (int)PieceType::QUEEN:
+                    score += colorSign * QUEEN_PST[pstIdx];
+                    break;
+                case (int)PieceType::KING:
+                    score += colorSign * KING_PST[pstIdx];
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
     }
 
-    // Mobility bonus for side to move only
-    int mobilityBonus = 10 * (int)legalMoves.size();
+    // Pawn structure
+    score += pawnStructure(board, Color::WHITE);
+    score -= pawnStructure(board, Color::BLACK);
 
-    int score = materialScore * (board.sideToMove() == Color::WHITE ? 1 : -1);
-    score += mobilityBonus * (board.sideToMove() == Color::WHITE ? 1 : -1);
+    // King safety
+    score -= kingSafety(board, Color::WHITE);
+    score += kingSafety(board, Color::BLACK);
+
+    // Mobility
+    score += 5 * (mobility(board, Color::WHITE) - mobility(board, Color::BLACK));
+
+    // Side to move bonus
+    if (board.sideToMove() == Color::WHITE)
+        score += 10;
+    else
+        score -= 10;
+    if (board.sideToMove() == Color::BLACK)
+        score = -score;
 
     return score;
 }
@@ -396,8 +649,7 @@ int main()
     int depth = 30;
 
     // Uncomment below line to run puzzle tests before starting UCI loop
-    runPuzzleTests();
-
+    // runPuzzleTests();
     while (std::getline(std::cin, line))
     {
         if (line == "uci")
