@@ -133,7 +133,7 @@ void ttStore(const Board &board, int depth, int value, int alpha, int beta)
 }
 
 // Evaluation
-int evaluateBoard(const Board &board, int plyFromRoot = 0)
+int evaluateBoard(const Board &board, int plyFromRoot, Movelist &moves)
 {
 
     if (board.isHalfMoveDraw())
@@ -142,13 +142,11 @@ int evaluateBoard(const Board &board, int plyFromRoot = 0)
     if (board.isRepetition())
         return 0;
 
-    Movelist moves;
-    movegen::legalmoves(moves, board);
     bool inCheck = board.inCheck();
     if (moves.empty())
         return inCheck ? -(100000 - plyFromRoot) : 0;
 
-    int score = 0;
+    int materialScore = 0;
 
     for (PieceType pt : {PieceType::PAWN, PieceType::KNIGHT, PieceType::BISHOP,
                          PieceType::ROOK, PieceType::QUEEN, PieceType::KING})
@@ -156,34 +154,37 @@ int evaluateBoard(const Board &board, int plyFromRoot = 0)
         chess::Bitboard wbb = board.pieces(pt, Color::WHITE);
         chess::Bitboard bbb = board.pieces(pt, Color::BLACK);
 
-        score += wbb.count() * MATERIAL_VALUES[(int)pt];
-        score -= bbb.count() * MATERIAL_VALUES[(int)pt];
+        materialScore += wbb.count() * MATERIAL_VALUES[(int)pt];
+        materialScore -= bbb.count() * MATERIAL_VALUES[(int)pt];
     }
+    int score = materialScore * (board.sideToMove() == Color::WHITE ? 1 : -1);
 
     // Mobility bonus
-    score += 10 * moves.size();
+    int mobilityBonus = 10 * moves.size();
+    score += mobilityBonus * (board.sideToMove() == Color::WHITE ? 1 : -1);
+    score += mobilityBonus;
 
-    return board.sideToMove() == Color::WHITE ? score : -score;
+    return score;
 }
 
 // Quiescence search
-int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
+int quiesce(Board &board, int alpha, int beta, int plyFromRoot, Movelist &moves)
 {
-    int stand_pat = evaluateBoard(board, plyFromRoot);
+    int stand_pat = evaluateBoard(board, plyFromRoot, moves);
     if (stand_pat >= beta)
         return beta;
     if (stand_pat > alpha)
         alpha = stand_pat;
 
-    chess::Movelist moves;
-    movegen::legalmoves(moves, board);
-    std::vector<Move> orderedMoves = orderMoves(board, moves);
-    for (auto move : orderedMoves)
+
+    for (auto move : moves)
     {
         if (!board.isCapture(move))
             continue;
         board.makeMove(move);
-        int score = -quiesce(board, -beta, -alpha, plyFromRoot + 1);
+        chess::Movelist nextMoves;
+        movegen::legalmoves(nextMoves, board);
+        int score = -quiesce(board, -beta, -alpha, plyFromRoot + 1, nextMoves);
         board.unmakeMove(move);
         if (score >= beta)
             return beta;
@@ -193,12 +194,12 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
     return alpha;
 }
 
-// Negamax
 int negamax(Board &board, int depth, int alpha, int beta,
-            std::chrono::steady_clock::time_point start, double timeLimit, int plyFromRoot, bool& timedOut)
+            std::chrono::steady_clock::time_point start, double timeLimit, int plyFromRoot, bool &timedOut)
 {
     using namespace std::chrono;
-    if (duration<double>(steady_clock::now() - start).count() > timeLimit) {
+    if (duration<double>(steady_clock::now() - start).count() > timeLimit)
+    {
         timedOut = true;
         return 0;
     }
@@ -207,20 +208,19 @@ int negamax(Board &board, int depth, int alpha, int beta,
     if (ttVal.has_value())
         return ttVal.value();
 
+    chess::Movelist moves;
+    movegen::legalmoves(moves, board);
     if (depth <= 0)
-        return quiesce(board, alpha, beta, plyFromRoot);
+        return quiesce(board, alpha, beta, plyFromRoot, moves);
 
     int originalAlpha = alpha;
     int bestScore = -1000000;
 
-    chess::Movelist moves;
-    movegen::legalmoves(moves, board);
     std::vector<Move> orderedMoves = orderMoves(board, moves);
     for (auto move : orderedMoves)
     {
         board.makeMove(move);
-        int score = negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
-        score = -score;
+        int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
         board.unmakeMove(move);
 
         if (score > bestScore)
@@ -243,7 +243,6 @@ Move findBestMove(Board &board, int depth,
     int bestScore = -88888;
     int alpha = -88888;
     int beta = 88888;
-    timedOut = false;
 
     chess::Movelist moves;
     movegen::legalmoves(moves, board);
@@ -259,9 +258,8 @@ Move findBestMove(Board &board, int depth,
         }
 
         board.makeMove(move);
-        int score = negamax(board, depth - 1, -beta, -alpha, start, timeLimit, 1, timedOut);
+        int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, 1, timedOut);
         board.unmakeMove(move);
-        score = -score;
         if (score > bestScore)
         {
             bestScore = score;
