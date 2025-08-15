@@ -343,8 +343,12 @@ int mobility(const Board &board, Color color)
 // Main evaluation function
 int evaluateBoard(const Board &board, int plyFromRoot)
 {
-    if (board.isHalfMoveDraw() || board.isRepetition(1))
+
+    if (board.isRepetition(1) || board.isInsufficientMaterial())
         return 0;
+    if (board.isHalfMoveDraw())
+        return board.getHalfMoveDrawType().first == GameResultReason::CHECKMATE ? -(100000 - plyFromRoot) : 0;
+
 
     chess::Movelist legalMoves;
     movegen::legalmoves(legalMoves, board);
@@ -489,24 +493,8 @@ int negamax(Board &board, int depth, int alpha, int beta,
     for (auto move : orderedMoves)
     {
         board.makeMove(move);
-        int score;
-        if (firstMove)
-        {
-            score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
-            firstMove = false;
-        }
-        else
-        {
-            // PVS: search with a null window
-            score = -negamax(board, depth - 1, -alpha - 1, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
-            if (score > alpha && score < beta)
-            {
-                // Re-search if it fails high
-                score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
-            }
-        }
+        int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
         board.unmakeMove(move);
-
         if (timedOut)
             return alpha; // abort search early on timeout
 
@@ -684,7 +672,7 @@ int main()
     int depth = 30;
 
     // Uncomment below line to run puzzle tests before starting UCI loop
-    // runPuzzleTests();
+    runPuzzleTests();
     while (std::getline(std::cin, line))
     {
         if (line == "uci")
