@@ -343,19 +343,7 @@ int mobility(const Board &board, Color color)
 // Main evaluation function
 int evaluateBoard(const Board &board, int plyFromRoot)
 {
-
-    if (board.isRepetition(1) || board.isInsufficientMaterial())
-        return 0;
-    if (board.isHalfMoveDraw())
-        return board.getHalfMoveDrawType().first == GameResultReason::CHECKMATE ? -(100000 - plyFromRoot) : 0;
-
-
-    chess::Movelist legalMoves;
-    movegen::legalmoves(legalMoves, board);
-
-    if (legalMoves.empty())
-        return board.inCheck() ? -(100000 - plyFromRoot) : 0;
-
+    // Only static evaluation, no draw/mate checks!
     int score = 0;
 
     // Material and PST
@@ -436,18 +424,27 @@ int evaluateBoard(const Board &board, int plyFromRoot)
     return score;
 }
 
-// Quiescence search
+// Quiescence search with draw/mate/stalemate detection
 int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
 {
+    // --- Draw and mate/stalemate detection ---
+    if (board.isRepetition(1) || board.isInsufficientMaterial())
+        return 0;
+    if (board.isHalfMoveDraw())
+        return 0;
+
+    chess::Movelist legalMoves;
+    movegen::legalmoves(legalMoves, board);
+    if (legalMoves.empty())
+        return board.inCheck() ? -(100000 - plyFromRoot) : 0;
+
     int stand_pat = evaluateBoard(board, plyFromRoot);
     if (stand_pat >= beta)
         return beta;
     if (stand_pat > alpha)
         alpha = stand_pat;
 
-    chess::Movelist moves;
-    movegen::legalmoves(moves, board);
-    for (auto move : moves)
+    for (auto move : legalMoves)
     {
         if (!board.isCapture(move))
             continue; // Only captures in quiescence
@@ -476,20 +473,28 @@ int negamax(Board &board, int depth, int alpha, int beta,
         return 0;
     }
 
+    // --- Draw and mate/stalemate detection ---
+    if (board.isRepetition(1) || board.isInsufficientMaterial())
+        return 0;
+    if (board.isHalfMoveDraw())
+        return 0;
+
+    chess::Movelist legalMoves;
+    movegen::legalmoves(legalMoves, board);
+    if (legalMoves.empty())
+        return board.inCheck() ? -(100000 - plyFromRoot) : 0;
+
     auto ttVal = ttLookup(board, depth, alpha, beta);
     if (ttVal.has_value())
         return ttVal.value();
 
-    chess::Movelist moves;
-    movegen::legalmoves(moves, board);
     if (depth <= 0)
         return quiesce(board, alpha, beta, plyFromRoot);
 
     int originalAlpha = alpha;
     int bestScore = -1000000;
 
-    std::vector<Move> orderedMoves = orderMoves(board, moves);
-    bool firstMove = true;
+    std::vector<Move> orderedMoves = orderMoves(board, legalMoves);
     for (auto move : orderedMoves)
     {
         board.makeMove(move);
@@ -672,7 +677,7 @@ int main()
     int depth = 30;
 
     // Uncomment below line to run puzzle tests before starting UCI loop
-    runPuzzleTests();
+    // runPuzzleTests();
     while (std::getline(std::cin, line))
     {
         if (line == "uci")
