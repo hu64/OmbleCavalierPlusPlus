@@ -595,7 +595,7 @@ Move findBestMoveIterative(Board &board, int maxDepth, double totalTimeRemaining
     movegen::legalmoves(legalMoves, board);
 
     // Estimate moves left (endgame: fewer, opening: more)
-    int movesToGo = std::min(40, 60 - moveNumber);
+    int movesToGo = std::max(1, std::min(40, 60 - moveNumber));    
     double reserve = 1.0; // Always keep at least 1 second
     double timeForMove = std::max(0.05, std::min(
                                             (totalTimeRemaining - reserve) / movesToGo + 0.5 * increment,
