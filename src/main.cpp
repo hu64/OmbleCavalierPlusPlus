@@ -13,6 +13,24 @@ using namespace chess;
 // Material values
 static const int MATERIAL_VALUES[6] = {100, 320, 330, 500, 900, 60000};
 
+// Killer moves and history heuristic
+constexpr int MAX_PLY = 128;
+Move killerMoves[MAX_PLY][2];
+int historyHeuristic[64][64] = {};
+
+void clearKillerMoves()
+{
+    for (int i = 0; i < MAX_PLY; ++i)
+        for (int j = 0; j < 2; ++j)
+            killerMoves[i][j] = Move::NULL_MOVE;
+}
+void clearHistoryHeuristic()
+{
+    for (int i = 0; i < 64; ++i)
+        for (int j = 0; j < 64; ++j)
+            historyHeuristic[i][j] = 0;
+}
+
 // Piece-square tables (values for white, black uses mirrored)
 static const int PAWN_PST[64] = {
     0, 0, 0, 0, 0, 0, 0, 0,
@@ -104,11 +122,8 @@ int getPieceValue(const Board &board, Square sq)
         return 0;
     return MATERIAL_VALUES[(int)piece.type()];
 }
-
-// Order moves by heuristic: captures, checks, promotions
-std::vector<Move> orderMoves(Board &board, Movelist &moves)
+std::vector<Move> orderMoves(Board &board, Movelist &moves, int plyFromRoot = 0)
 {
-    // Pair of <score, move>
     std::vector<std::pair<int, Move>> scoredMoves;
 
     for (auto move : moves)
@@ -120,44 +135,44 @@ std::vector<Move> orderMoves(Board &board, Movelist &moves)
         board.unmakeMove(move);
 
         if (isCheck)
-        {
             score = 200;
-        }
         else if (board.isCapture(move))
         {
             int capturedValue = 0;
-            // Handle en passant correctly: destination square is empty pre-move
             if (move.typeOf() == chess::Move::ENPASSANT)
                 capturedValue = MATERIAL_VALUES[(int)PieceType::PAWN];
             else
                 capturedValue = getPieceValue(board, move.to());
             int capturingValue = getPieceValue(board, move.from());
-            // MVV-LVA style capture ordering
             score = 100 + ((capturedValue - capturingValue) / 10);
         }
         else if (move.typeOf() == chess::Move::PROMOTION)
-        {
             score = 90;
-        }
         else if (move.typeOf() == chess::Move::CASTLING)
-        {
             score = 80;
-        }
         else if (move.typeOf() == chess::Move::ENPASSANT)
-        {
             score = 50;
+
+        // Killer moves
+        if (!board.isCapture(move) && move.typeOf() != Move::PROMOTION)
+        {
+            if (move == killerMoves[plyFromRoot][0])
+                score += 95;
+            else if (move == killerMoves[plyFromRoot][1])
+                score += 90;
+            // History heuristic
+            score += historyHeuristic[move.from().index()][move.to().index()] / 100;
         }
+
         scoredMoves.push_back({score, move});
     }
 
-    // Sort moves by score descending
     std::sort(scoredMoves.begin(), scoredMoves.end(),
               [](const std::pair<int, Move> &a, const std::pair<int, Move> &b)
               {
                   return a.first > b.first;
               });
 
-    // Extract sorted moves
     std::vector<Move> ordered;
     for (auto &p : scoredMoves)
         ordered.push_back(p.second);
@@ -514,33 +529,37 @@ int negamax(Board &board, int depth, int alpha, int beta,
     int originalAlpha = alpha;
     int bestScore = -1000000;
 
-    std::vector<Move> orderedMoves = orderMoves(board, legalMoves);
+    std::vector<Move> orderedMoves = orderMoves(board, legalMoves, plyFromRoot);
+    int moveCount = 0;
     for (auto move : orderedMoves)
     {
         board.makeMove(move);
-        int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+        int reduction = 0;
+        if (depth >= 3 && moveCount >= 4 && !board.isCapture(move) && move.typeOf() != Move::PROMOTION)
+            reduction = 1;
+        int score = -negamax(board, depth - 1 - reduction, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
         board.unmakeMove(move);
+        moveCount++;
         if (timedOut)
-            return alpha; // abort search early on timeout
+            return alpha;
 
         if (score > bestScore)
             bestScore = score;
         if (score > alpha)
             alpha = score;
         if (alpha >= beta)
-            break; // Beta cutoff
-
-        // Futility pruning: only at shallow depth, not in check
-        if (depth == 1 && !board.inCheck())
         {
-            int staticEval = evaluateBoard(board, plyFromRoot);
-            int razorMargin = 250; // Tune this value
-            if (staticEval + razorMargin < alpha)
+            // Killer move: non-capture, non-promotion
+            if (!board.isCapture(move) && move.typeOf() != Move::PROMOTION)
             {
-                int qscore = quiesce(board, alpha - 1, alpha, plyFromRoot);
-                if (qscore < alpha)
-                    return qscore;
+                if (killerMoves[plyFromRoot][0] != move)
+                {
+                    killerMoves[plyFromRoot][1] = killerMoves[plyFromRoot][0];
+                    killerMoves[plyFromRoot][0] = move;
+                }
+                historyHeuristic[move.from().index()][move.to().index()] += depth * depth;
             }
+            break;
         }
     }
 
@@ -595,7 +614,7 @@ Move findBestMoveIterative(Board &board, int maxDepth, double totalTimeRemaining
     movegen::legalmoves(legalMoves, board);
 
     // Estimate moves left (endgame: fewer, opening: more)
-    int movesToGo = std::max(1, std::min(40, 60 - moveNumber));    
+    int movesToGo = std::max(1, std::min(40, 60 - moveNumber));
     double reserve = 1.0; // Always keep at least 1 second
     double timeForMove = std::max(0.05, std::min(
                                             (totalTimeRemaining - reserve) / movesToGo + 0.5 * increment,
@@ -726,6 +745,8 @@ int main()
         }
         else if (line == "ucinewgame")
         {
+            clearKillerMoves();
+            clearHistoryHeuristic();
             board.setFen(chess::constants::STARTPOS);
             TT.clear();
         }
