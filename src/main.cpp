@@ -449,6 +449,13 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
         if (!board.isCapture(move))
             continue; // Only captures in quiescence
 
+        // Delta pruning
+        int staticEval = evaluateBoard(board, plyFromRoot);
+        int capturedValue = getPieceValue(board, move.to());
+        int deltaMargin = 100; // Tune this value
+        if (staticEval + capturedValue + deltaMargin <= alpha)
+            continue;
+
         board.makeMove(move);
         int score = -quiesce(board, -beta, -alpha, plyFromRoot + 1);
         board.unmakeMove(move);
@@ -459,6 +466,19 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
             alpha = score;
     }
     return alpha;
+}
+
+bool canNullMove(const Board &board, int depth)
+{
+    // Don't null move in check or with only pawns/king (likely zugzwang)
+    if (board.inCheck())
+        return false;
+    int nonPawnMaterial = 0;
+    for (PieceType pt : {PieceType::KNIGHT, PieceType::BISHOP, PieceType::ROOK, PieceType::QUEEN})
+    {
+        nonPawnMaterial += MATERIAL_VALUES[(int)pt] * board.pieces(pt, board.sideToMove()).count();
+    }
+    return depth >= 3 && nonPawnMaterial >= 2 * MATERIAL_VALUES[(int)PieceType::ROOK];
 }
 
 int negamax(Board &board, int depth, int alpha, int beta,
@@ -509,6 +529,19 @@ int negamax(Board &board, int depth, int alpha, int beta,
             alpha = score;
         if (alpha >= beta)
             break; // Beta cutoff
+
+        // Futility pruning: only at shallow depth, not in check
+        if (depth == 1 && !board.inCheck())
+        {
+            int staticEval = evaluateBoard(board, plyFromRoot);
+            int razorMargin = 200; // Tune this value
+            if (staticEval + razorMargin < alpha)
+            {
+                int qscore = quiesce(board, alpha - 1, alpha, plyFromRoot);
+                if (qscore < alpha)
+                    return qscore;
+            }
+        }
     }
 
     ttStore(board, depth, bestScore, originalAlpha, beta);
@@ -678,6 +711,7 @@ int main()
 
     // Uncomment below line to run puzzle tests before starting UCI loop
     // runPuzzleTests();
+
     while (std::getline(std::cin, line))
     {
         if (line == "uci")
