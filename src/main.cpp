@@ -534,7 +534,7 @@ int negamax(Board &board, int depth, int alpha, int beta,
         if (depth == 1 && !board.inCheck())
         {
             int staticEval = evaluateBoard(board, plyFromRoot);
-            int razorMargin = 200; // Tune this value
+            int razorMargin = 250; // Tune this value
             if (staticEval + razorMargin < alpha)
             {
                 int qscore = quiesce(board, alpha - 1, alpha, plyFromRoot);
