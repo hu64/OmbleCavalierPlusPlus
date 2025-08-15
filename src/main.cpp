@@ -330,29 +330,37 @@ Move findBestMoveIterative(Board &board, int maxDepth, double totalTimeRemaining
     return bestMove;
 }
 
-struct Puzzle {
+struct Puzzle
+{
     std::string fen;
     std::string description;
     std::string expected_best_move;
 };
 
-void runPuzzleTests() {
+void runPuzzleTests()
+{
     std::vector<Puzzle> puzzles = {
         {"kbK5/pp6/1P6/8/8/8/R7/8 w - - 0 2", "mate in 2 (a2a6)", "a2a6"},
         {"rnbqkbnr/ppp2ppp/3p4/4p3/4P1Q1/8/PPPP1PPP/RNB1KBNR b KQkq - 1 3", "black wins a queen (c8g4)", "c8g4"},
         {"rnbqkbnr/1pp2ppp/p2p4/4p1B1/4P3/3P4/PPP2PPP/RN1QKBNR w KQkq - 0 4", "white wins a queen (g5d8)", "g5d8"},
-        {"r1b1kb1r/pppp1ppp/5q2/4n3/3KP3/2N3PN/PPP4P/R1BQ1B1R b kq - 0 1", "", "f8c5"}
-    };
+        {"r1b1kb1r/pppp1ppp/5q2/4n3/3KP3/2N3PN/PPP4P/R1BQ1B1R b kq - 0 1", "", "f8c5"}};
 
     int passCount = 0;
     int total = (int)puzzles.size();
 
-    for (const auto& puzzle : puzzles)
+    auto overall_start = std::chrono::steady_clock::now();
+
+    for (const auto &puzzle : puzzles)
     {
+        auto start = std::chrono::steady_clock::now();
+
         Board board;
         board.setFen(puzzle.fen);
         Move bestMove = findBestMoveIterative(board, 6, 1000);
         std::string bestMoveUci = uci::moveToUci(bestMove);
+
+        auto end = std::chrono::steady_clock::now();
+        double elapsed = std::chrono::duration<double>(end - start).count();
 
         bool passed = (bestMoveUci == puzzle.expected_best_move);
         if (passed)
@@ -369,10 +377,15 @@ void runPuzzleTests() {
         {
             std::cout << " (" << puzzle.description << ")";
         }
-        std::cout << " - Expected: " << puzzle.expected_best_move << ", Got: " << bestMoveUci << std::endl;
+        std::cout << " - Expected: " << puzzle.expected_best_move << ", Got: " << bestMoveUci;
+        std::cout << " | Time: " << elapsed << "s" << std::endl;
     }
 
+    auto overall_end = std::chrono::steady_clock::now();
+    double overall_elapsed = std::chrono::duration<double>(overall_end - overall_start).count();
+
     std::cout << "Puzzle tests passed: " << passCount << " / " << total << std::endl;
+    std::cout << "Total time for all puzzles: " << overall_elapsed << "s" << std::endl;
 }
 
 // Main loop (UCI)
@@ -383,7 +396,7 @@ int main()
     int depth = 30;
 
     // Uncomment below line to run puzzle tests before starting UCI loop
-    // runPuzzleTests();
+    runPuzzleTests();
 
     while (std::getline(std::cin, line))
     {
