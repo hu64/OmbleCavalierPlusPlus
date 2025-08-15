@@ -3,6 +3,8 @@
 #include <vector>
 #include <chrono>
 #include <bit>
+#include <algorithm>
+#include <sstream>
 
 #include "chess.hpp" // Disservin's library
 
@@ -40,9 +42,15 @@ std::vector<Move> orderMoves(Board &board, Movelist &moves)
         }
         else if (board.isCapture(move))
         {
-            int capturedValue = getPieceValue(board, move.to());
+            int capturedValue = 0;
+            // Handle en passant correctly: destination square is empty pre-move
+            if (move.typeOf() == chess::Move::ENPASSANT)
+                capturedValue = MATERIAL_VALUES[(int)PieceType::PAWN];
+            else
+                capturedValue = getPieceValue(board, move.to());
             int capturingValue = getPieceValue(board, move.from());
-            score = 100 + ((capturedValue - capturingValue) / 100);
+            // MVV-LVA style capture ordering
+            score = 100 + ((capturedValue - capturingValue) / 10);
         }
         else if (move.typeOf() == chess::Move::PROMOTION)
         {
@@ -133,59 +141,60 @@ void ttStore(const Board &board, int depth, int value, int alpha, int beta)
 }
 
 // Evaluation
-int evaluateBoard(const Board &board, int plyFromRoot, Movelist &moves)
+int evaluateBoard(const Board &board, int plyFromRoot)
 {
-
-    if (board.isHalfMoveDraw())
-        return board.getHalfMoveDrawType().first == GameResultReason::CHECKMATE ? -(100000 - plyFromRoot) : 0;
-
-    if (board.isRepetition())
+    // Draw detection
+    if (board.isHalfMoveDraw() || board.isRepetition())
         return 0;
 
-    bool inCheck = board.inCheck();
-    if (moves.empty())
-        return inCheck ? -(100000 - plyFromRoot) : 0;
+    // Generate fresh legal moves for this position
+    chess::Movelist legalMoves;
+    movegen::legalmoves(legalMoves, board);
 
+    // Mate / stalemate detection
+    if (legalMoves.empty())
+        return board.inCheck() ? -(100000 - plyFromRoot) : 0;
+
+    // Material
     int materialScore = 0;
-
     for (PieceType pt : {PieceType::PAWN, PieceType::KNIGHT, PieceType::BISHOP,
                          PieceType::ROOK, PieceType::QUEEN, PieceType::KING})
     {
         chess::Bitboard wbb = board.pieces(pt, Color::WHITE);
         chess::Bitboard bbb = board.pieces(pt, Color::BLACK);
-
-        materialScore += wbb.count() * MATERIAL_VALUES[(int)pt];
-        materialScore -= bbb.count() * MATERIAL_VALUES[(int)pt];
+        materialScore += (int)wbb.count() * MATERIAL_VALUES[(int)pt];
+        materialScore -= (int)bbb.count() * MATERIAL_VALUES[(int)pt];
     }
-    int score = materialScore * (board.sideToMove() == Color::WHITE ? 1 : -1);
 
-    // Mobility bonus
-    int mobilityBonus = 10 * moves.size();
+    // Mobility bonus for side to move only
+    int mobilityBonus = 10 * (int)legalMoves.size();
+
+    int score = materialScore * (board.sideToMove() == Color::WHITE ? 1 : -1);
     score += mobilityBonus * (board.sideToMove() == Color::WHITE ? 1 : -1);
-    score += mobilityBonus;
 
     return score;
 }
 
 // Quiescence search
-int quiesce(Board &board, int alpha, int beta, int plyFromRoot, Movelist &moves)
+int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
 {
-    int stand_pat = evaluateBoard(board, plyFromRoot, moves);
+    int stand_pat = evaluateBoard(board, plyFromRoot);
     if (stand_pat >= beta)
         return beta;
     if (stand_pat > alpha)
         alpha = stand_pat;
 
-
+    chess::Movelist moves;
+    movegen::legalmoves(moves, board);
     for (auto move : moves)
     {
         if (!board.isCapture(move))
-            continue;
+            continue; // Only captures in quiescence
+
         board.makeMove(move);
-        chess::Movelist nextMoves;
-        movegen::legalmoves(nextMoves, board);
-        int score = -quiesce(board, -beta, -alpha, plyFromRoot + 1, nextMoves);
+        int score = -quiesce(board, -beta, -alpha, plyFromRoot + 1);
         board.unmakeMove(move);
+
         if (score >= beta)
             return beta;
         if (score > alpha)
@@ -198,6 +207,8 @@ int negamax(Board &board, int depth, int alpha, int beta,
             std::chrono::steady_clock::time_point start, double timeLimit, int plyFromRoot, bool &timedOut)
 {
     using namespace std::chrono;
+    if (timedOut)
+        return 0;
     if (duration<double>(steady_clock::now() - start).count() > timeLimit)
     {
         timedOut = true;
@@ -211,7 +222,7 @@ int negamax(Board &board, int depth, int alpha, int beta,
     chess::Movelist moves;
     movegen::legalmoves(moves, board);
     if (depth <= 0)
-        return quiesce(board, alpha, beta, plyFromRoot, moves);
+        return quiesce(board, alpha, beta, plyFromRoot);
 
     int originalAlpha = alpha;
     int bestScore = -1000000;
@@ -222,6 +233,9 @@ int negamax(Board &board, int depth, int alpha, int beta,
         board.makeMove(move);
         int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
         board.unmakeMove(move);
+
+        if (timedOut)
+            return alpha; // abort search early on timeout
 
         if (score > bestScore)
             bestScore = score;
@@ -260,6 +274,8 @@ Move findBestMove(Board &board, int depth,
         board.makeMove(move);
         int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, 1, timedOut);
         board.unmakeMove(move);
+        if (timedOut)
+            break;
         if (score > bestScore)
         {
             bestScore = score;
