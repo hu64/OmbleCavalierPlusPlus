@@ -67,3 +67,4 @@ CMakeUserPresets.json
 # End of https://www.toptal.com/developers/gitignore/api/ninja
 
 build/*
+.vscode/settings.json
