@@ -343,7 +343,7 @@ int mobility(const Board &board, Color color)
 // Main evaluation function
 int evaluateBoard(const Board &board, int plyFromRoot)
 {
-    if (board.isHalfMoveDraw() || board.isRepetition())
+    if (board.isHalfMoveDraw() || board.isRepetition(1))
         return 0;
 
     chess::Movelist legalMoves;
@@ -481,10 +481,26 @@ int negamax(Board &board, int depth, int alpha, int beta,
     int bestScore = -1000000;
 
     std::vector<Move> orderedMoves = orderMoves(board, moves);
+    bool firstMove = true;
     for (auto move : orderedMoves)
     {
         board.makeMove(move);
-        int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+        int score;
+        if (firstMove)
+        {
+            score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+            firstMove = false;
+        }
+        else
+        {
+            // PVS: search with a null window
+            score = -negamax(board, depth - 1, -alpha - 1, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+            if (score > alpha && score < beta)
+            {
+                // Re-search if it fails high
+                score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+            }
+        }
         board.unmakeMove(move);
 
         if (timedOut)
@@ -495,7 +511,7 @@ int negamax(Board &board, int depth, int alpha, int beta,
         if (score > alpha)
             alpha = score;
         if (alpha >= beta)
-            break;
+            break; // Beta cutoff
     }
 
     ttStore(board, depth, bestScore, originalAlpha, beta);
