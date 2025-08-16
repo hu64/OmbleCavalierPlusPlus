@@ -348,10 +348,16 @@ int pawnStructure(const Board &board, Color color)
 int mobility(const Board &board, Color color)
 {
     chess::Movelist moves;
-    Board copy = board;
-    if (copy.sideToMove() != color)
-        copy.makeNullMove();
-    movegen::legalmoves(moves, copy);
+    if (board.sideToMove() == color)
+    {
+        movegen::legalmoves(moves, board);
+    }
+    else
+    {
+        Board temp = board;
+        temp.makeNullMove();
+        movegen::legalmoves(moves, temp);
+    }
     return moves.size();
 }
 
