@@ -464,13 +464,6 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
         if (!board.isCapture(move))
             continue; // Only captures in quiescence
 
-        // Delta pruning
-        int staticEval = evaluateBoard(board, plyFromRoot);
-        int capturedValue = getPieceValue(board, move.to());
-        int deltaMargin = 100; // Tune this value
-        if (staticEval + capturedValue + deltaMargin <= alpha)
-            continue;
-
         board.makeMove(move);
         int score = -quiesce(board, -beta, -alpha, plyFromRoot + 1);
         board.unmakeMove(move);
@@ -481,19 +474,6 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
             alpha = score;
     }
     return alpha;
-}
-
-bool canNullMove(const Board &board, int depth)
-{
-    // Don't null move in check or with only pawns/king (likely zugzwang)
-    if (board.inCheck())
-        return false;
-    int nonPawnMaterial = 0;
-    for (PieceType pt : {PieceType::KNIGHT, PieceType::BISHOP, PieceType::ROOK, PieceType::QUEEN})
-    {
-        nonPawnMaterial += MATERIAL_VALUES[(int)pt] * board.pieces(pt, board.sideToMove()).count();
-    }
-    return depth >= 3 && nonPawnMaterial >= 2 * MATERIAL_VALUES[(int)PieceType::ROOK];
 }
 
 int negamax(Board &board, int depth, int alpha, int beta,
@@ -548,19 +528,7 @@ int negamax(Board &board, int depth, int alpha, int beta,
         if (score > alpha)
             alpha = score;
         if (alpha >= beta)
-        {
-            // Killer move: non-capture, non-promotion
-            if (!board.isCapture(move) && move.typeOf() != Move::PROMOTION)
-            {
-                if (killerMoves[plyFromRoot][0] != move)
-                {
-                    killerMoves[plyFromRoot][1] = killerMoves[plyFromRoot][0];
-                    killerMoves[plyFromRoot][0] = move;
-                }
-                historyHeuristic[move.from().index()][move.to().index()] += depth * depth;
-            }
             break;
-        }
     }
 
     ttStore(board, depth, bestScore, originalAlpha, beta);
@@ -609,6 +577,9 @@ Move findBestMove(Board &board, int depth,
 
 Move findBestMoveIterative(Board &board, int maxDepth, double totalTimeRemaining, double increment = 0.0)
 {
+    clearKillerMoves();
+    clearHistoryHeuristic();
+    TT.clear();
     int moveNumber = board.fullMoveNumber();
     chess::Movelist legalMoves;
     movegen::legalmoves(legalMoves, board);
@@ -712,6 +683,10 @@ void runPuzzleTests()
         }
         std::cout << " - Expected: " << puzzle.expected_best_move << ", Got: " << bestMoveUci;
         std::cout << " | Time: " << elapsed << "s" << std::endl;
+
+        clearKillerMoves();
+        clearHistoryHeuristic();
+        TT.clear();
     }
 
     auto overall_end = std::chrono::steady_clock::now();
@@ -729,7 +704,6 @@ int main()
     int depth = 30;
 
     // Uncomment below line to run puzzle tests before starting UCI loop
-    // runPuzzleTests();
 
     while (std::getline(std::cin, line))
     {
@@ -821,6 +795,11 @@ int main()
         else if (line == "quit")
         {
             break;
+        }
+        else if (line == "puzzletest")
+        {
+            runPuzzleTests();
+            std::cout << "info string Puzzle tests complete\n";
         }
     }
 }
