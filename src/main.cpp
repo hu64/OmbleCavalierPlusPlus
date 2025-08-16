@@ -367,77 +367,87 @@ int evaluateBoard(const Board &board, int plyFromRoot)
     // Only static evaluation, no draw/mate checks!
     int score = 0;
 
-    // Material and PST
-    for (Color color : {Color::WHITE, Color::BLACK})
+    for (PieceType pt : {PieceType::PAWN, PieceType::KNIGHT, PieceType::BISHOP,
+                         PieceType::ROOK, PieceType::QUEEN, PieceType::KING})
     {
-        int colorSign = (color == Color::WHITE) ? 1 : -1;
-        for (PieceType pt : {PieceType::PAWN, PieceType::KNIGHT, PieceType::BISHOP,
-                             PieceType::ROOK, PieceType::QUEEN, PieceType::KING})
-        {
-            chess::Bitboard bb = board.pieces(pt, color);
-            int pieceValue = MATERIAL_VALUES[static_cast<int>(pt)];
-            while (bb)
-            {
-                int sq = bb.lsb();
-                bb.clear(sq);
-                score += colorSign * pieceValue;
-                // PST: mirror for black
-                int pstIdx = (color == Color::WHITE) ? sq : mirror(sq);
-                switch (pt)
-                {
-                case (int)PieceType::PAWN:
-                    score += colorSign * PAWN_PST[pstIdx];
-                    break;
-                case (int)PieceType::KNIGHT:
-                    score += colorSign * KNIGHT_PST[pstIdx];
-                    break;
-                case (int)PieceType::BISHOP:
-                    score += colorSign * BISHOP_PST[pstIdx];
-                    break;
-                case (int)PieceType::ROOK:
-                    score += colorSign * ROOK_PST[pstIdx];
-                    break;
-                case (int)PieceType::QUEEN:
-                    score += colorSign * QUEEN_PST[pstIdx];
-                    break;
-                case (int)PieceType::KING:
-                    score += colorSign * KING_PST[pstIdx];
-                    break;
-                default:
-                    break;
-                }
-            }
-        }
+        chess::Bitboard wbb = board.pieces(pt, Color::WHITE);
+        chess::Bitboard bbb = board.pieces(pt, Color::BLACK);
+
+        score += wbb.count() * MATERIAL_VALUES[(int)pt];
+        score -= bbb.count() * MATERIAL_VALUES[(int)pt];
     }
+
+    // Material and PST
+    // for (Color color : {Color::WHITE, Color::BLACK})
+    // {
+    //     int colorSign = (color == Color::WHITE) ? 1 : -1;
+    //     for (PieceType pt : {PieceType::PAWN, PieceType::KNIGHT, PieceType::BISHOP,
+    //                          PieceType::ROOK, PieceType::QUEEN, PieceType::KING})
+    //     {
+    //         chess::Bitboard bb = board.pieces(pt, color);
+    //         int pieceValue = MATERIAL_VALUES[static_cast<int>(pt)];
+    //         while (bb)
+    //         {
+    //             int sq = bb.lsb();
+    //             bb.clear(sq);
+    //             score += colorSign * pieceValue;
+    //             // PST: mirror for black
+    //             int pstIdx = (color == Color::WHITE) ? sq : mirror(sq);
+    //             switch (pt)
+    //             {
+    //             case (int)PieceType::PAWN:
+    //                 score += colorSign * PAWN_PST[pstIdx];
+    //                 break;
+    //             case (int)PieceType::KNIGHT:
+    //                 score += colorSign * KNIGHT_PST[pstIdx];
+    //                 break;
+    //             case (int)PieceType::BISHOP:
+    //                 score += colorSign * BISHOP_PST[pstIdx];
+    //                 break;
+    //             case (int)PieceType::ROOK:
+    //                 score += colorSign * ROOK_PST[pstIdx];
+    //                 break;
+    //             case (int)PieceType::QUEEN:
+    //                 score += colorSign * QUEEN_PST[pstIdx];
+    //                 break;
+    //             case (int)PieceType::KING:
+    //                 score += colorSign * KING_PST[pstIdx];
+    //                 break;
+    //             default:
+    //                 break;
+    //             }
+    //         }
+    //     }
+    // }
 
     // --- Bishop pair bonus ---
     // Give a bonus if a side has two or more bishops
-    const int BISHOP_PAIR_BONUS = 40;
-    for (Color color : {Color::WHITE, Color::BLACK})
-    {
-        int count = board.pieces(PieceType::BISHOP, color).count();
-        if (count >= 2)
-        {
-            score += (color == Color::WHITE ? 1 : -1) * BISHOP_PAIR_BONUS;
-        }
-    }
+    // const int BISHOP_PAIR_BONUS = 40;
+    // for (Color color : {Color::WHITE, Color::BLACK})
+    // {
+    //     int count = board.pieces(PieceType::BISHOP, color).count();
+    //     if (count >= 2)
+    //     {
+    //         score += (color == Color::WHITE ? 1 : -1) * BISHOP_PAIR_BONUS;
+    //     }
+    // }
 
     // Pawn structure
-    score += pawnStructure(board, Color::WHITE);
-    score -= pawnStructure(board, Color::BLACK);
+    // score += pawnStructure(board, Color::WHITE);
+    // score -= pawnStructure(board, Color::BLACK);
 
     // King safety
-    score -= kingSafety(board, Color::WHITE);
-    score += kingSafety(board, Color::BLACK);
+    // score -= kingSafety(board, Color::WHITE);
+    // score += kingSafety(board, Color::BLACK);
 
     // Mobility
-    score += 5 * (mobility(board, Color::WHITE) - mobility(board, Color::BLACK));
+    // score += 5 * (mobility(board, Color::WHITE) - mobility(board, Color::BLACK));
 
     // Side to move bonus
-    if (board.sideToMove() == Color::WHITE)
-        score += 10;
-    else
-        score -= 10;
+    // if (board.sideToMove() == Color::WHITE)
+    //     score += 10;
+    // else
+    //     score -= 10;
 
     if (board.sideToMove() == Color::BLACK)
         score = -score;
@@ -448,11 +458,12 @@ int evaluateBoard(const Board &board, int plyFromRoot)
 // Quiescence search with draw/mate/stalemate detection
 int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
 {
+    // std::cout << "info string Quiesce search at ply " << plyFromRoot << "\n";
     // --- Draw and mate/stalemate detection ---
-    if (board.isRepetition(1) || board.isInsufficientMaterial())
-        return 0;
-    if (board.isHalfMoveDraw())
-        return 0;
+    // if (board.isRepetition(1) || board.isInsufficientMaterial())
+    //     return 0;
+    // if (board.isHalfMoveDraw())
+    //     return 0;
 
     chess::Movelist legalMoves;
     movegen::legalmoves(legalMoves, board);
@@ -460,9 +471,9 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
         return board.inCheck() ? -(100000 - plyFromRoot) : 0;
 
     int stand_pat = evaluateBoard(board, plyFromRoot);
-    
+
     if (stand_pat >= beta)
-        return beta;
+        return stand_pat;
 
     if (stand_pat > alpha)
         alpha = stand_pat;
@@ -474,17 +485,16 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
 
         board.makeMove(move);
         int score = -quiesce(board, -beta, -alpha, plyFromRoot + 1);
-        // if (board.sideToMove() == Color::BLACK)
-        //     score = -score; // Mirror score for black
         board.unmakeMove(move);
 
         if (score >= beta)
-            return beta;
-
+            return score;
+        if (score > stand_pat) 
+            stand_pat = score;
         if (score > alpha)
             alpha = score;
     }
-    return alpha;
+    return stand_pat;
 }
 
 int negamax(Board &board, int depth, int alpha, int beta,
@@ -548,7 +558,11 @@ int negamax(Board &board, int depth, int alpha, int beta,
         int reduction = 0;
         if (depth >= 3 && moveCount >= 4 && !board.isCapture(move) && move.typeOf() != Move::PROMOTION)
             reduction = 1;
+
         int score = -negamax(board, depth - 1 - reduction, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+        
+        // int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+
         board.unmakeMove(move);
         moveCount++;
         if (timedOut)
@@ -732,18 +746,18 @@ int main()
 {
 
     Board board;
-    board.setFen("r1bqkbnr/pppp1ppp/3np3/8/3PPB2/2N2N2/PP3PPP/R2QKB1R b KQkq - 1 6");
+    // board.setFen("r1bqkbnr/pppp1ppp/3np3/8/3PPB2/2N2N2/PP3PPP/R2QKB1R b KQkq - 1 6");
 
-    double timeLimit = 1000.0; // seconds
-    int maxDepth = 6;
-    bool timedOut = false;
-    auto start = std::chrono::steady_clock::now();
+    // double timeLimit = 1000.0; // seconds
+    // int maxDepth = 6;
+    // bool timedOut = false;
+    // auto start = std::chrono::steady_clock::now();
 
-    Move best = findBestMoveIterative(board, maxDepth, timeLimit, timedOut);
-    std::cout << "Best move: " << uci::moveToUci(best) << std::endl;
+    // Move best = findBestMoveIterative(board, maxDepth, timeLimit, timedOut);
+    // std::cout << "Best move: " << uci::moveToUci(best) << std::endl;
 
-    return 0;
-    
+    // return 0;
+
     std::string line;
     int depth = 30;
 
