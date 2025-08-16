@@ -460,8 +460,10 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
         return board.inCheck() ? -(100000 - plyFromRoot) : 0;
 
     int stand_pat = evaluateBoard(board, plyFromRoot);
+    
     if (stand_pat >= beta)
         return beta;
+
     if (stand_pat > alpha)
         alpha = stand_pat;
 
@@ -472,10 +474,13 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
 
         board.makeMove(move);
         int score = -quiesce(board, -beta, -alpha, plyFromRoot + 1);
+        // if (board.sideToMove() == Color::BLACK)
+        //     score = -score; // Mirror score for black
         board.unmakeMove(move);
 
         if (score >= beta)
             return beta;
+
         if (score > alpha)
             alpha = score;
     }
@@ -725,7 +730,20 @@ void runPuzzleTests()
 // Main loop (UCI)
 int main()
 {
+
     Board board;
+    board.setFen("r1bqkbnr/pppp1ppp/3np3/8/3PPB2/2N2N2/PP3PPP/R2QKB1R b KQkq - 1 6");
+
+    double timeLimit = 1000.0; // seconds
+    int maxDepth = 6;
+    bool timedOut = false;
+    auto start = std::chrono::steady_clock::now();
+
+    Move best = findBestMoveIterative(board, maxDepth, timeLimit, timedOut);
+    std::cout << "Best move: " << uci::moveToUci(best) << std::endl;
+
+    return 0;
+    
     std::string line;
     int depth = 30;
 
