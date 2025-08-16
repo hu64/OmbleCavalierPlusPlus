@@ -13,6 +13,14 @@ using namespace chess;
 // Material values
 static const int MATERIAL_VALUES[6] = {100, 320, 330, 500, 900, 60000};
 
+static const PieceType ptArray[6] = {
+    PieceType::PAWN,
+    PieceType::KNIGHT,
+    PieceType::BISHOP,
+    PieceType::ROOK,
+    PieceType::QUEEN,
+    PieceType::KING};
+
 // Killer moves and history heuristic
 constexpr int MAX_PLY = 128;
 Move killerMoves[MAX_PLY][2];
@@ -361,76 +369,77 @@ int mobility(const Board &board, Color color)
     return moves.size();
 }
 
-// Main evaluation function
+// Main evaluation function: always returns score from White's perspective (positive = good for White)
 int evaluateBoard(const Board &board, int plyFromRoot)
 {
-    // Only static evaluation, no draw/mate checks!
     int score = 0;
 
-    for (PieceType pt : {PieceType::PAWN, PieceType::KNIGHT, PieceType::BISHOP,
-                         PieceType::ROOK, PieceType::QUEEN, PieceType::KING})
-    {
-        chess::Bitboard wbb = board.pieces(pt, Color::WHITE);
-        chess::Bitboard bbb = board.pieces(pt, Color::BLACK);
+    // for (size_t i = 0; i < 6; ++i)
+    // {
+    //     PieceType pt = ptArray[i];
+    //     chess::Bitboard wbb = board.pieces(pt, Color::WHITE);
+    //     chess::Bitboard bbb = board.pieces(pt, Color::BLACK);
 
-        score += wbb.count() * MATERIAL_VALUES[(int)pt];
-        score -= bbb.count() * MATERIAL_VALUES[(int)pt];
-    }
+    //     score += wbb.count() * MATERIAL_VALUES[i];
+    //     score -= bbb.count() * MATERIAL_VALUES[i];
+    // }
 
     // Material and PST
-    // for (Color color : {Color::WHITE, Color::BLACK})
-    // {
-    //     int colorSign = (color == Color::WHITE) ? 1 : -1;
-    //     for (PieceType pt : {PieceType::PAWN, PieceType::KNIGHT, PieceType::BISHOP,
-    //                          PieceType::ROOK, PieceType::QUEEN, PieceType::KING})
-    //     {
-    //         chess::Bitboard bb = board.pieces(pt, color);
-    //         int pieceValue = MATERIAL_VALUES[static_cast<int>(pt)];
-    //         while (bb)
-    //         {
-    //             int sq = bb.lsb();
-    //             bb.clear(sq);
-    //             score += colorSign * pieceValue;
-    //             // PST: mirror for black
-    //             int pstIdx = (color == Color::WHITE) ? sq : mirror(sq);
-    //             switch (pt)
-    //             {
-    //             case (int)PieceType::PAWN:
-    //                 score += colorSign * PAWN_PST[pstIdx];
-    //                 break;
-    //             case (int)PieceType::KNIGHT:
-    //                 score += colorSign * KNIGHT_PST[pstIdx];
-    //                 break;
-    //             case (int)PieceType::BISHOP:
-    //                 score += colorSign * BISHOP_PST[pstIdx];
-    //                 break;
-    //             case (int)PieceType::ROOK:
-    //                 score += colorSign * ROOK_PST[pstIdx];
-    //                 break;
-    //             case (int)PieceType::QUEEN:
-    //                 score += colorSign * QUEEN_PST[pstIdx];
-    //                 break;
-    //             case (int)PieceType::KING:
-    //                 score += colorSign * KING_PST[pstIdx];
-    //                 break;
-    //             default:
-    //                 break;
-    //             }
-    //         }
-    //     }
-    // }
+    for (Color color : {Color::WHITE, Color::BLACK})
+    {
+        int colorSign = (color == Color::WHITE) ? 1 : -1;
+        for (size_t i = 0; i < 6; ++i)
+        {
+            PieceType pt = ptArray[i];
+            // Count material
+    
+            chess::Bitboard bb = board.pieces(pt, color);
+            int pieceValue = MATERIAL_VALUES[static_cast<int>(pt)];
+            while (bb)
+            {
+                int sq = bb.lsb();
+                bb.clear(sq);
+                score += colorSign * pieceValue;
+                // PST: mirror for black
+                int pstIdx = (color == Color::WHITE) ? sq : mirror(sq);
+                switch (pt)
+                {
+                case (int)PieceType::PAWN:
+                    score += colorSign * PAWN_PST[pstIdx];
+                    break;
+                case (int)PieceType::KNIGHT:
+                    score += colorSign * KNIGHT_PST[pstIdx];
+                    break;
+                case (int)PieceType::BISHOP:
+                    score += colorSign * BISHOP_PST[pstIdx];
+                    break;
+                case (int)PieceType::ROOK:
+                    score += colorSign * ROOK_PST[pstIdx];
+                    break;
+                case (int)PieceType::QUEEN:
+                    score += colorSign * QUEEN_PST[pstIdx];
+                    break;
+                case (int)PieceType::KING:
+                    score += colorSign * KING_PST[pstIdx];
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
+    }
 
     // --- Bishop pair bonus ---
     // Give a bonus if a side has two or more bishops
-    // const int BISHOP_PAIR_BONUS = 40;
-    // for (Color color : {Color::WHITE, Color::BLACK})
-    // {
-    //     int count = board.pieces(PieceType::BISHOP, color).count();
-    //     if (count >= 2)
-    //     {
-    //         score += (color == Color::WHITE ? 1 : -1) * BISHOP_PAIR_BONUS;
-    //     }
-    // }
+    const int BISHOP_PAIR_BONUS = 40;
+    for (Color color : {Color::WHITE, Color::BLACK})
+    {
+        int count = board.pieces(PieceType::BISHOP, color).count();
+        if (count >= 2)
+        {
+            score += (color == Color::WHITE ? 1 : -1) * BISHOP_PAIR_BONUS;
+        }
+    }
 
     // Pawn structure
     // score += pawnStructure(board, Color::WHITE);
@@ -441,7 +450,7 @@ int evaluateBoard(const Board &board, int plyFromRoot)
     // score += kingSafety(board, Color::BLACK);
 
     // Mobility
-    // score += 5 * (mobility(board, Color::WHITE) - mobility(board, Color::BLACK));
+    score += 5 * (mobility(board, Color::WHITE) - mobility(board, Color::BLACK));
 
     // Side to move bonus
     // if (board.sideToMove() == Color::WHITE)
@@ -560,8 +569,6 @@ int negamax(Board &board, int depth, int alpha, int beta,
             reduction = 1;
 
         int score = -negamax(board, depth - 1 - reduction, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
-        
-        // int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
 
         board.unmakeMove(move);
         moveCount++;
@@ -596,11 +603,11 @@ Move findBestMove(Board &board, int depth,
     {
         double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
         if (elapsed > timeLimit)
-        {
+    {
             std::cout << "info string Time limit reached in find best move, stopping search\n";
-            timedOut = true;
+        timedOut = true;
             break;
-        }
+    }
 
         board.makeMove(move);
         int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, 1, timedOut);
@@ -622,14 +629,10 @@ Move findBestMove(Board &board, int depth,
 
 Move findBestMoveIterative(Board &board, int maxDepth, double totalTimeRemaining, double increment = 0.0)
 {
-    // clearKillerMoves();
-    // clearHistoryHeuristic();
-    // TT.clear();
     int moveNumber = board.fullMoveNumber();
     chess::Movelist legalMoves;
     movegen::legalmoves(legalMoves, board);
 
-    // Estimate moves left (endgame: fewer, opening: more)
     int movesToGo = std::max(1, std::min(40, 60 - moveNumber));
     double reserve = 1.0; // Always keep at least 1 second
     double timeForMove = std::max(0.05, std::min(
@@ -747,7 +750,7 @@ int main()
 
     Board board;
     // board.setFen("r1bqkbnr/pppp1ppp/3np3/8/3PPB2/2N2N2/PP3PPP/R2QKB1R b KQkq - 1 6");
-
+    // // board.setFen("r1bqkb1r/pppp1ppp/3npn2/8/3PPB2/2N2N2/PP3PPP/R2QKB1R w KQkq - 2 7)");
     // double timeLimit = 1000.0; // seconds
     // int maxDepth = 6;
     // bool timedOut = false;
@@ -756,6 +759,8 @@ int main()
     // Move best = findBestMoveIterative(board, maxDepth, timeLimit, timedOut);
     // std::cout << "Best move: " << uci::moveToUci(best) << std::endl;
 
+    // board.setFen("r1bqkbnr/pppp1ppp/3np3/8/3PPB2/2N2N2/PP3PPP/R2QKB1R b KQkq - 1 6");
+    // std::cout << "eval of this position: " << evaluateBoard(board, 0) << std::endl;
     // return 0;
 
     std::string line;
