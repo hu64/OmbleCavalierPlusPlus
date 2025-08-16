@@ -494,6 +494,26 @@ int negamax(Board &board, int depth, int alpha, int beta,
     if (board.isHalfMoveDraw())
         return 0;
 
+    // null move pruningp
+    if (depth >= 3 && !board.inCheck())
+    {
+        int nonPawnMaterial = 0;
+        for (PieceType pt : {PieceType::KNIGHT, PieceType::BISHOP, PieceType::ROOK, PieceType::QUEEN})
+        {
+            nonPawnMaterial += MATERIAL_VALUES[(int)pt] * board.pieces(pt, board.sideToMove()).count();
+        }
+        if (nonPawnMaterial >= 2 * MATERIAL_VALUES[(int)PieceType::ROOK])
+        {
+            board.makeNullMove();
+            int nullScore = -negamax(board, depth - 3, -beta, -beta + 1, start, timeLimit, plyFromRoot + 1, timedOut);
+            board.unmakeNullMove();
+            if (timedOut)
+                return 0;
+            if (nullScore >= beta)
+                return beta;
+        }
+    }
+
     chess::Movelist legalMoves;
     movegen::legalmoves(legalMoves, board);
     if (legalMoves.empty())
@@ -577,9 +597,9 @@ Move findBestMove(Board &board, int depth,
 
 Move findBestMoveIterative(Board &board, int maxDepth, double totalTimeRemaining, double increment = 0.0)
 {
-    clearKillerMoves();
-    clearHistoryHeuristic();
-    TT.clear();
+    // clearKillerMoves();
+    // clearHistoryHeuristic();
+    // TT.clear();
     int moveNumber = board.fullMoveNumber();
     chess::Movelist legalMoves;
     movegen::legalmoves(legalMoves, board);
