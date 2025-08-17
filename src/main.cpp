@@ -372,6 +372,11 @@ int mobility(const Board &board, Color color)
 // Main evaluation function: always returns score from White's perspective (positive = good for White)
 int evaluateBoard(const Board &board, int plyFromRoot)
 {
+    // chess::Movelist legalMoves2;
+    // movegen::legalmoves(legalMoves2, board);
+    // if (legalMoves2.empty())
+    //     return board.inCheck() ? -(100000 - plyFromRoot) : 0;
+
     int score = 0;
 
     // for (size_t i = 0; i < 6; ++i)
@@ -465,7 +470,7 @@ int evaluateBoard(const Board &board, int plyFromRoot)
 }
 
 // Quiescence search with draw/mate/stalemate detection
-int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
+int quiesce(Board &board, int alpha, int beta, int plyFromRoot, Movelist& legalMoves)
 {
     // std::cout << "info string Quiesce search at ply " << plyFromRoot << "\n";
     // --- Draw and mate/stalemate detection ---
@@ -474,8 +479,9 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
     // if (board.isHalfMoveDraw())
     //     return 0;
 
-    chess::Movelist legalMoves;
-    movegen::legalmoves(legalMoves, board);
+    // chess::Movelist legalMoves;
+    // movegen::legalmoves(legalMoves, board);
+
     if (legalMoves.empty())
         return board.inCheck() ? -(100000 - plyFromRoot) : 0;
 
@@ -493,7 +499,16 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
             continue; // Only captures in quiescence
 
         board.makeMove(move);
-        int score = -quiesce(board, -beta, -alpha, plyFromRoot + 1);
+
+        chess::Movelist legalMoves2;
+        movegen::legalmoves(legalMoves2, board);
+        
+        if (legalMoves2.empty()) {
+            board.unmakeMove(move);
+            return board.inCheck() ? -(100000 - plyFromRoot) : 0;
+        }
+   
+        int score = -quiesce(board, -beta, -alpha, plyFromRoot + 1, legalMoves2);
         board.unmakeMove(move);
 
         if (score >= beta)
@@ -525,24 +540,24 @@ int negamax(Board &board, int depth, int alpha, int beta,
         return 0;
 
     // null move pruningp
-    if (depth >= 3 && !board.inCheck())
-    {
-        int nonPawnMaterial = 0;
-        for (PieceType pt : {PieceType::KNIGHT, PieceType::BISHOP, PieceType::ROOK, PieceType::QUEEN})
-        {
-            nonPawnMaterial += MATERIAL_VALUES[(int)pt] * board.pieces(pt, board.sideToMove()).count();
-        }
-        if (nonPawnMaterial >= 2 * MATERIAL_VALUES[(int)PieceType::ROOK])
-        {
-            board.makeNullMove();
-            int nullScore = -negamax(board, depth - 3, -beta, -beta + 1, start, timeLimit, plyFromRoot + 1, timedOut);
-            board.unmakeNullMove();
-            if (timedOut)
-                return 0;
-            if (nullScore >= beta)
-                return beta;
-        }
-    }
+    // if (depth >= 3 && !board.inCheck())
+    // {
+    //     int nonPawnMaterial = 0;
+    //     for (PieceType pt : {PieceType::KNIGHT, PieceType::BISHOP, PieceType::ROOK, PieceType::QUEEN})
+    //     {
+    //         nonPawnMaterial += MATERIAL_VALUES[(int)pt] * board.pieces(pt, board.sideToMove()).count();
+    //     }
+    //     if (nonPawnMaterial >= 2 * MATERIAL_VALUES[(int)PieceType::ROOK])
+    //     {
+    //         board.makeNullMove();
+    //         int nullScore = -negamax(board, depth - 3, -beta, -beta + 1, start, timeLimit, plyFromRoot + 1, timedOut);
+    //         board.unmakeNullMove();
+    //         if (timedOut)
+    //             return 0;
+    //         if (nullScore >= beta)
+    //             return beta;
+    //     }
+    // }
 
     chess::Movelist legalMoves;
     movegen::legalmoves(legalMoves, board);
@@ -554,7 +569,7 @@ int negamax(Board &board, int depth, int alpha, int beta,
         return ttVal.value();
 
     if (depth <= 0)
-        return quiesce(board, alpha, beta, plyFromRoot);
+        return quiesce(board, alpha, beta, plyFromRoot, legalMoves);
 
     int originalAlpha = alpha;
     int bestScore = -1000000;
@@ -583,7 +598,7 @@ int negamax(Board &board, int depth, int alpha, int beta,
             break;
     }
 
-    ttStore(board, depth, bestScore, originalAlpha, beta);
+    // ttStore(board, depth, bestScore, originalAlpha, beta);
     return bestScore;
 }
 
@@ -699,7 +714,9 @@ void runPuzzleTests()
         {"kbK5/pp6/1P6/8/8/8/R7/8 w - - 0 2", "mate in 2 (a2a6)", "a2a6"},
         {"rnbqkbnr/ppp2ppp/3p4/4p3/4P1Q1/8/PPPP1PPP/RNB1KBNR b KQkq - 1 3", "black wins a queen (c8g4)", "c8g4"},
         {"rnbqkbnr/1pp2ppp/p2p4/4p1B1/4P3/3P4/PPP2PPP/RN1QKBNR w KQkq - 0 4", "white wins a queen (g5d8)", "g5d8"},
-        {"r1b1kb1r/pppp1ppp/5q2/4n3/3KP3/2N3PN/PPP4P/R1BQ1B1R b kq - 0 1", "", "f8c5"}};
+        {"r1b1kb1r/pppp1ppp/5q2/4n3/3KP3/2N3PN/PPP4P/R1BQ1B1R b kq - 0 1", "", "f8c5"},
+        {"1r5k/5ppp/3Q4/8/8/Prq3P1/2P1K2P/3R1R2 b - - 5 27", "", "c3e3"}
+    };
 
     int passCount = 0;
     int total = (int)puzzles.size();
@@ -755,16 +772,20 @@ int main()
     Board board;
     // board.setFen("r1bqkbnr/pppp1ppp/3np3/8/3PPB2/2N2N2/PP3PPP/R2QKB1R b KQkq - 1 6");
     // // board.setFen("r1bqkb1r/pppp1ppp/3npn2/8/3PPB2/2N2N2/PP3PPP/R2QKB1R w KQkq - 2 7)");
-    // double timeLimit = 1000.0; // seconds
-    // int maxDepth = 6;
+    // board.setFen("8/pp5p/7P/1p1p1K2/8/4r3/1k6/6r1 b - - 9 69");
+    
+    // runPuzzleTests();
+    // board.setFen( "8/7q/4r3/3K4/8/8/8/1k6 b - - 0 123");
+    // double timeLimit = 300.0; // seconds
+    // int maxDepth = 11;
     // bool timedOut = false;
     // auto start = std::chrono::steady_clock::now();
 
     // Move best = findBestMoveIterative(board, maxDepth, timeLimit, timedOut);
     // std::cout << "Best move: " << uci::moveToUci(best) << std::endl;
 
-    // board.setFen("r1bqkbnr/pppp1ppp/3np3/8/3PPB2/2N2N2/PP3PPP/R2QKB1R b KQkq - 1 6");
-    // std::cout << "eval of this position: " << evaluateBoard(board, 0) << std::endl;
+    // // board.setFen("r1bqkbnr/pppp1ppp/3np3/8/3PPB2/2N2N2/PP3PPP/R2QKB1R b KQkq - 1 6");
+    // // std::cout << "eval of this position: " << evaluateBoard(board, 0) << std::endl;
     // return 0;
 
     std::string line;
