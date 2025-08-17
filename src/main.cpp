@@ -629,6 +629,10 @@ Move findBestMove(Board &board, int depth,
 
 Move findBestMoveIterative(Board &board, int maxDepth, double totalTimeRemaining, double increment = 0.0)
 {
+    clearKillerMoves();
+    clearHistoryHeuristic();
+    TT.clear();
+
     int moveNumber = board.fullMoveNumber();
     chess::Movelist legalMoves;
     movegen::legalmoves(legalMoves, board);
