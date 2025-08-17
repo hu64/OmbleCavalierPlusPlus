@@ -370,7 +370,7 @@ int mobility(const Board &board, Color color)
 }
 
 // Main evaluation function: always returns score from White's perspective (positive = good for White)
-int evaluateBoard(const Board &board, int plyFromRoot)
+int evaluateBoard(const Board &board, int plyFromRoot, Movelist& moves )
 {
     // chess::Movelist legalMoves2;
     // movegen::legalmoves(legalMoves2, board);
@@ -378,6 +378,8 @@ int evaluateBoard(const Board &board, int plyFromRoot)
     //     return board.inCheck() ? -(100000 - plyFromRoot) : 0;
 
     int score = 0;
+
+    score += moves.size() * 5; // Bonus for number of legal moves
 
     // for (size_t i = 0; i < 6; ++i)
     // {
@@ -455,7 +457,7 @@ int evaluateBoard(const Board &board, int plyFromRoot)
     score += kingSafety(board, Color::BLACK);
 
     // Mobility
-    score += 5 * (mobility(board, Color::WHITE) - mobility(board, Color::BLACK));
+    // score += 5 * (mobility(board, Color::WHITE) - mobility(board, Color::BLACK));
 
     // Side to move bonus
     // if (board.sideToMove() == Color::WHITE)
@@ -489,7 +491,7 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot, Movelist &legalM
         else
             return board.inCheck() ? -(100000 + plyFromRoot) : 0;
     }
-    int stand_pat = evaluateBoard(board, plyFromRoot);
+    int stand_pat = evaluateBoard(board, plyFromRoot, legalMoves);
 
     if (stand_pat >= beta)
         return stand_pat;
@@ -732,7 +734,7 @@ void runPuzzleTests()
         {"8/1Q6/2PBK3/k7/8/2P2P2/8/7q w - - 7 63", "mate in 2", "d6c7"},
         {"r3k2r/ppp2Npp/1b5n/4p2b/2B1P2q/BQP2P2/P5PP/RN5K w kq - 1 0", "mate in 3", "c4b5"},
         {"r2n1rk1/1ppb2pp/1p1p4/3Ppq1n/2B3P1/2P4P/PP1N1P1K/R2Q1RN1 b - - 0 1", "mate in 3", "f5f2"},
-        
+
     };
 
     int passCount = 0;
@@ -782,11 +784,39 @@ void runPuzzleTests()
     std::cout << "Total time for all puzzles: " << overall_elapsed << "s" << std::endl;
 }
 
+void benchmarking()
+{
+
+    auto overall_start = std::chrono::steady_clock::now();
+    const int evalNum = 10000000;
+    Board board;
+    board.setFen(chess::constants::STARTPOS);
+
+    Movelist moves;
+    movegen::legalmoves(moves, board);
+    for (size_t i = 0; i < evalNum; ++i)
+    {
+        evaluateBoard(board, 0, moves);
+    }
+
+    auto end = std::chrono::steady_clock::now();
+    double elapsed = std::chrono::duration<double>(end - overall_start).count();
+
+    std::cout << "Benchmarking complete: evaluated " << evalNum << " positions in " << elapsed << " seconds." << std::endl;
+    clearKillerMoves();
+    clearHistoryHeuristic();
+    TT.clear();
+}
+
 // Main loop (UCI)
 int main()
 {
 
     Board board;
+
+    // board.setFen(chess::constants::STARTPOS);
+    // std::cout << "starting position hash: " << board.hash() << std::endl;
+
     // board.setFen("r1bqkbnr/pppp1ppp/3np3/8/3PPB2/2N2N2/PP3PPP/R2QKB1R b KQkq - 1 6");
     // // board.setFen("r1bqkb1r/pppp1ppp/3npn2/8/3PPB2/2N2N2/PP3PPP/R2QKB1R w KQkq - 2 7)");
     // board.setFen("8/1Q6/2PBK3/k7/8/2P2P2/8/7q w - - 7 63");
@@ -902,6 +932,11 @@ int main()
         {
             runPuzzleTests();
             std::cout << "info string Puzzle tests complete\n";
+        }
+        else if (line == "benchmarking")
+        {
+            benchmarking();
+            std::cout << "info string benchmarking complete\n";
         }
     }
 }
