@@ -11,7 +11,9 @@
 using namespace chess;
 
 // Material values
-static const int MATERIAL_VALUES[6] = {100, 320, 330, 500, 900, 60000};
+static const int MATERIAL_VALUES[6] = {100, 320, 330, 500, 900, 0};
+static const int MATE_SCORE = 69000;
+static const int MAX_DEPTH = 69;
 
 static const PieceType ptArray[6] = {
     PieceType::PAWN,
@@ -21,23 +23,13 @@ static const PieceType ptArray[6] = {
     PieceType::QUEEN,
     PieceType::KING};
 
-// Killer moves and history heuristic
-constexpr int MAX_PLY = 128;
-Move killerMoves[MAX_PLY][2];
-int historyHeuristic[64][64] = {};
-
-void clearKillerMoves()
+struct TTEntry
 {
-    for (int i = 0; i < MAX_PLY; ++i)
-        for (int j = 0; j < 2; ++j)
-            killerMoves[i][j] = Move::NULL_MOVE;
-}
-void clearHistoryHeuristic()
-{
-    for (int i = 0; i < 64; ++i)
-        for (int j = 0; j < 64; ++j)
-            historyHeuristic[i][j] = 0;
-}
+    int depth;
+    int score;
+    int flag;        // 0 = exact, -1 = alpha, 1 = beta
+    int plyFromRoot; // NEW
+};
 
 // Piece-square tables (values for white, black uses mirrored)
 static const int PAWN_PST[64] = {
@@ -130,6 +122,50 @@ int getPieceValue(const Board &board, Square sq)
         return 0;
     return MATERIAL_VALUES[(int)piece.type()];
 }
+
+std::unordered_map<uint64_t, TTEntry> transTable;
+
+bool probeTT(const Board &board, int depth, int alpha, int beta, int &outScore, int &outPly)
+{
+    auto it = transTable.find(board.hash());
+    if (it != transTable.end())
+    {
+        const TTEntry &entry = it->second;
+        if (entry.depth >= depth)
+        {
+            outScore = entry.score;
+            outPly = entry.plyFromRoot;
+            if (entry.flag == 0)
+                return true;
+            else if (entry.flag == -1 && entry.score <= alpha)
+            {
+                outScore = alpha;
+                return true;
+            }
+            else if (entry.flag == 1 && entry.score >= beta)
+            {
+                outScore = beta;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void storeTT(const Board &board, int depth, int score, int flag, int plyFromRoot)
+{
+    TTEntry entry{depth, score, flag, plyFromRoot};
+    transTable[board.hash()] = entry;
+}
+
+inline int fixTTScoreForPly(int score, int storedPly, int currentPly)
+{
+    if (score > MATE_SCORE - 1000) // mate score for winning
+        return score - (storedPly - currentPly);
+    if (score < -(MATE_SCORE - 1000)) // mate score for losing
+        return score + (storedPly - currentPly);
+    return score;
+}
 std::vector<Move> orderMoves(Board &board, Movelist &moves, int plyFromRoot = 0)
 {
     std::vector<std::pair<int, Move>> scoredMoves;
@@ -161,17 +197,6 @@ std::vector<Move> orderMoves(Board &board, Movelist &moves, int plyFromRoot = 0)
         else if (move.typeOf() == chess::Move::ENPASSANT)
             score = 50;
 
-        // Killer moves
-        if (!board.isCapture(move) && move.typeOf() != Move::PROMOTION)
-        {
-            if (move == killerMoves[plyFromRoot][0])
-                score += 95;
-            else if (move == killerMoves[plyFromRoot][1])
-                score += 90;
-            // History heuristic
-            score += historyHeuristic[move.from().index()][move.to().index()] / 100;
-        }
-
         scoredMoves.push_back({score, move});
     }
 
@@ -188,64 +213,6 @@ std::vector<Move> orderMoves(Board &board, Movelist &moves, int plyFromRoot = 0)
     return ordered;
 }
 
-// Transposition table
-struct TTEntry
-{
-    int depth;
-    int value;
-    enum Flag
-    {
-        EXACT,
-        LOWERBOUND,
-        UPPERBOUND
-    } flag;
-};
-std::unordered_map<uint64_t, TTEntry> TT;
-
-// Zobrist key
-inline uint64_t boardKey(const Board &board)
-{
-    return board.hash();
-}
-
-// Lookup
-std::optional<int> ttLookup(const Board &board, int depth, int alpha, int beta)
-{
-    auto key = boardKey(board);
-    auto it = TT.find(key);
-    if (it != TT.end())
-    {
-        const auto &e = it->second;
-        if (e.depth >= depth)
-        {
-            if (e.flag == TTEntry::EXACT)
-                return e.value;
-            else if (e.flag == TTEntry::LOWERBOUND && e.value > alpha)
-                alpha = e.value;
-            else if (e.flag == TTEntry::UPPERBOUND && e.value < beta)
-                beta = e.value;
-            if (alpha >= beta)
-                return e.value;
-        }
-    }
-    return std::nullopt;
-}
-
-// Store
-void ttStore(const Board &board, int depth, int value, int alpha, int beta)
-{
-    TTEntry entry;
-    entry.depth = depth;
-    entry.value = value;
-    if (value <= alpha)
-        entry.flag = TTEntry::UPPERBOUND;
-    else if (value >= beta)
-        entry.flag = TTEntry::LOWERBOUND;
-    else
-        entry.flag = TTEntry::EXACT;
-    TT[boardKey(board)] = entry;
-}
-
 // Helper: mirror square for black
 inline int mirror(int idx) { return ((7 - (idx / 8)) * 8) + (idx % 8); }
 
@@ -259,128 +226,19 @@ inline int countBits(chess::Bitboard bb)
 #endif
 }
 
-// King safety: penalty for open files and missing pawn shield
-int kingSafety(const Board &board, Color color)
-{
-    int penalty = 0;
-    Square kingSq = board.kingSq(color);
-    int kfile = kingSq.file();
-    int krank = kingSq.rank();
-
-    // Pawn shield squares in front of king (3 squares)
-    int shieldRank = (color == Color::WHITE) ? krank + 1 : krank - 1;
-    for (int df = -1; df <= 1; ++df)
-    {
-        int f = kfile + df;
-        if (f < 0 || f > 7 || shieldRank < 0 || shieldRank > 7)
-            continue;
-        Square sq = Square(f + shieldRank * 8);
-        Piece p = board.at(sq);
-        if (p.type() != PieceType::PAWN || p.color() != color)
-            penalty += 15; // missing pawn shield
-    }
-
-    // Penalty for open/semi-open files near king
-    for (int df = -1; df <= 1; ++df)
-    {
-        int f = kfile + df;
-        if (f < 0 || f > 7)
-            continue;
-        chess::Bitboard pawns = board.pieces(PieceType::PAWN, color) & chess::Bitboard(File(f));
-        chess::Bitboard oppPawns = board.pieces(PieceType::PAWN, ~color) & chess::Bitboard(File(f));
-        if (!pawns)
-        {
-            penalty += oppPawns ? 10 : 20; // semi-open or open file
-        }
-    }
-    return penalty;
-}
-
-// Pawn structure: doubled, isolated, passed pawns
-int pawnStructure(const Board &board, Color color)
-{
-    int penalty = 0, bonus = 0;
-    chess::Bitboard pawns = board.pieces(PieceType::PAWN, color);
-
-    // Doubled pawns
-    for (int f = 0; f < 8; ++f)
-    {
-        chess::Bitboard filePawns = pawns & chess::Bitboard(File(f));
-        int count = countBits(filePawns);
-        if (count > 1)
-            penalty += 12 * (count - 1);
-    }
-
-    // Isolated pawns
-    for (int f = 0; f < 8; ++f)
-    {
-        chess::Bitboard filePawns = pawns & chess::Bitboard(File(f));
-        if (!filePawns)
-            continue;
-        bool hasLeft = (f > 0) && (pawns & chess::Bitboard(File(f - 1)));
-        bool hasRight = (f < 7) && (pawns & chess::Bitboard(File(f + 1)));
-        if (!hasLeft && !hasRight)
-            penalty += 15 * countBits(filePawns);
-    }
-
-    // Passed pawns
-    chess::Bitboard oppPawns = board.pieces(PieceType::PAWN, ~color);
-    for (int sq = 0; sq < 64; ++sq)
-    {
-        if (!pawns.check(sq))
-            continue;
-        int file = sq % 8;
-        int rank = sq / 8;
-        bool isPassed = true;
-        for (int df = -1; df <= 1; ++df)
-        {
-            int f = file + df;
-            if (f < 0 || f > 7)
-                continue;
-            for (int r = (color == Color::WHITE ? rank + 1 : 0);
-                 (color == Color::WHITE ? r < 8 : r < rank);
-                 r += (color == Color::WHITE ? 1 : 1))
-            {
-                int idx = f + r * 8;
-                if (oppPawns.check(idx))
-                    isPassed = false;
-            }
-        }
-        if (isPassed)
-            bonus += 20;
-    }
-    return bonus - penalty;
-}
-
-// Mobility: number of legal moves for each side
-int mobility(const Board &board, Color color)
-{
-    chess::Movelist moves;
-    if (board.sideToMove() == color)
-    {
-        movegen::legalmoves(moves, board);
-    }
-    else
-    {
-        Board temp = board;
-        temp.makeNullMove();
-        movegen::legalmoves(moves, temp);
-    }
-    return moves.size();
-}
-
 // Main evaluation function: always returns score from White's perspective (positive = good for White)
-int evaluateBoard(const Board &board, int plyFromRoot, Movelist& moves )
+int evaluateBoard(const Board &board, int plyFromRoot, Movelist &moves)
 {
-    // chess::Movelist legalMoves2;
-    // movegen::legalmoves(legalMoves2, board);
-    // if (legalMoves2.empty())
-    //     return board.inCheck() ? -(100000 - plyFromRoot) : 0;
+
+    if (moves.empty())
+    {
+        if (board.sideToMove() == Color::WHITE)
+            return board.inCheck() ? (MATE_SCORE - MAX_DEPTH) : 0;
+        else
+            return board.inCheck() ? (MATE_SCORE - MAX_DEPTH) : 0;
+    }
 
     int score = 0;
-
-    score += moves.size() * 5; // Bonus for number of legal moves
-
     // for (size_t i = 0; i < 6; ++i)
     // {
     //     PieceType pt = ptArray[i];
@@ -436,35 +294,6 @@ int evaluateBoard(const Board &board, int plyFromRoot, Movelist& moves )
         }
     }
 
-    // --- Bishop pair bonus ---
-    // Give a bonus if a side has two or more bishops
-    const int BISHOP_PAIR_BONUS = 40;
-    for (Color color : {Color::WHITE, Color::BLACK})
-    {
-        int count = board.pieces(PieceType::BISHOP, color).count();
-        if (count >= 2)
-        {
-            score += (color == Color::WHITE ? 1 : -1) * BISHOP_PAIR_BONUS;
-        }
-    }
-
-    // Pawn structure
-    score += pawnStructure(board, Color::WHITE);
-    score -= pawnStructure(board, Color::BLACK);
-
-    // King safety
-    score -= kingSafety(board, Color::WHITE);
-    score += kingSafety(board, Color::BLACK);
-
-    // Mobility
-    // score += 5 * (mobility(board, Color::WHITE) - mobility(board, Color::BLACK));
-
-    // Side to move bonus
-    // if (board.sideToMove() == Color::WHITE)
-    //     score += 10;
-    // else
-    //     score -= 10;
-
     if (board.sideToMove() == Color::BLACK)
         score = -score;
 
@@ -472,25 +301,11 @@ int evaluateBoard(const Board &board, int plyFromRoot, Movelist& moves )
 }
 
 // Quiescence search with draw/mate/stalemate detection
-int quiesce(Board &board, int alpha, int beta, int plyFromRoot, Movelist &legalMoves)
+int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
 {
-    // std::cout << "info string Quiesce search at ply " << plyFromRoot << "\n";
-    // --- Draw and mate/stalemate detection ---
-    // if (board.isRepetition(1) || board.isInsufficientMaterial())
-    //     return 0;
-    // if (board.isHalfMoveDraw())
-    //     return 0;
+    chess::Movelist legalMoves;
+    movegen::legalmoves(legalMoves, board);
 
-    // chess::Movelist legalMoves;
-    // movegen::legalmoves(legalMoves, board);
-
-    if (legalMoves.empty())
-    {
-        if (board.sideToMove() == Color::WHITE)
-            return board.inCheck() ? -(100000 - plyFromRoot) : 0;
-        else
-            return board.inCheck() ? -(100000 + plyFromRoot) : 0;
-    }
     int stand_pat = evaluateBoard(board, plyFromRoot, legalMoves);
 
     if (stand_pat >= beta)
@@ -502,23 +317,10 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot, Movelist &legalM
     for (auto move : legalMoves)
     {
         if (!board.isCapture(move))
-            continue; // Only captures in quiescence
+            continue;
 
         board.makeMove(move);
-
-        chess::Movelist legalMoves2;
-        movegen::legalmoves(legalMoves2, board);
-
-        if (legalMoves2.empty())
-        {
-            board.unmakeMove(move);
-            if (board.sideToMove() == Color::WHITE)
-                return board.inCheck() ? -(100000 - plyFromRoot) : 0;
-            else
-                return board.inCheck() ? -(100000 + plyFromRoot) : 0;
-        }
-
-        int score = -quiesce(board, -beta, -alpha, plyFromRoot + 1, legalMoves2);
+        int score = -quiesce(board, -beta, -alpha, plyFromRoot + 1);
         board.unmakeMove(move);
 
         if (score >= beta)
@@ -531,138 +333,87 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot, Movelist &legalM
     return stand_pat;
 }
 
-int negamax(Board &board, int depth, int alpha, int beta,
-            std::chrono::steady_clock::time_point start, double timeLimit, int plyFromRoot, bool &timedOut)
+struct SearchResult
+{
+    int score;
+    Move bestMove;
+};
+
+SearchResult negamaxRoot(Board &board, int depth, int alpha, int beta,
+                         std::chrono::steady_clock::time_point start, double timeLimit, int plyFromRoot, bool &timedOut)
 {
     using namespace std::chrono;
     if (timedOut)
-        return 0;
+        return {0, Move::NULL_MOVE};
     if (duration<double>(steady_clock::now() - start).count() > timeLimit)
     {
         timedOut = true;
-        return 0;
+        return {0, Move::NULL_MOVE};
     }
-
-    // --- Draw and mate/stalemate detection ---
-    if (board.isRepetition(1) || board.isInsufficientMaterial())
-        return 0;
-    if (board.isHalfMoveDraw())
-        return 0;
-
-    // null move pruningp
-    if (depth >= 3 && !board.inCheck())
+    int ttScore, ttPly;
+    if (probeTT(board, depth, alpha, beta, ttScore, ttPly))
     {
-        int nonPawnMaterial = 0;
-        for (PieceType pt : {PieceType::KNIGHT, PieceType::BISHOP, PieceType::ROOK, PieceType::QUEEN})
-        {
-            nonPawnMaterial += MATERIAL_VALUES[(int)pt] * board.pieces(pt, board.sideToMove()).count();
-        }
-        if (nonPawnMaterial >= 2 * MATERIAL_VALUES[(int)PieceType::ROOK])
-        {
-            board.makeNullMove();
-            int nullScore = -negamax(board, depth - 3, -beta, -beta + 1, start, timeLimit, plyFromRoot + 1, timedOut);
-            board.unmakeNullMove();
-            if (timedOut)
-                return 0;
-            if (nullScore >= beta)
-                return beta;
-        }
+        ttScore = fixTTScoreForPly(ttScore, ttPly, plyFromRoot);
+        return {ttScore, Move::NULL_MOVE};
     }
 
     chess::Movelist legalMoves;
     movegen::legalmoves(legalMoves, board);
-    // if (legalMoves.empty())
-    // {
-    //     if (board.sideToMove() == Color::WHITE)
-    //         return board.inCheck() ? -(100000 - plyFromRoot) : 0;
-    //     else
-    //         return board.inCheck() ? -(100000 + plyFromRoot) : 0;
-    // }
 
-    auto ttVal = ttLookup(board, depth, alpha, beta);
-    if (ttVal.has_value())
-        return ttVal.value();
+    // Terminal detection
+    if (board.isRepetition(1) || board.isInsufficientMaterial())
+        return {0, Move::NULL_MOVE};
+    if (board.isHalfMoveDraw())
+        return {0, Move::NULL_MOVE};
+    if (legalMoves.empty())
+    {
+        if (board.sideToMove() == Color::WHITE)
+            return {board.inCheck() ? -MATE_SCORE + plyFromRoot : 0, Move::NULL_MOVE};
+        else
+            return {board.inCheck() ? -MATE_SCORE + plyFromRoot : 0, Move::NULL_MOVE};
+    }
 
     if (depth <= 0)
-        return quiesce(board, alpha, beta, plyFromRoot, legalMoves);
+        // return {evaluateBoard(board, plyFromRoot, legalMoves), Move::NULL_MOVE};
+        return {quiesce(board, alpha, beta, plyFromRoot), Move::NULL_MOVE};
 
+    int bestScore = INT_MIN;
+    Move bestMove = Move::NULL_MOVE;
     int originalAlpha = alpha;
-    int bestScore = -1000000;
 
     std::vector<Move> orderedMoves = orderMoves(board, legalMoves, plyFromRoot);
-    int moveCount = 0;
     for (auto move : orderedMoves)
     {
         board.makeMove(move);
-        int reduction = 0;
-        if (depth >= 3 && moveCount >= 4 && !board.isCapture(move) && move.typeOf() != Move::PROMOTION)
-            reduction = 1;
-
-        int score = -negamax(board, depth - 1 - reduction, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
-
+        int score = -negamaxRoot(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut).score;
         board.unmakeMove(move);
-        moveCount++;
-        if (timedOut)
-            return alpha;
 
-        if (score > bestScore)
+        if (timedOut)
+            break;
+
+        if (score > bestScore || bestMove == Move::NULL_MOVE)
+        {
             bestScore = score;
+            bestMove = move;
+        }
         if (score > alpha)
             alpha = score;
         if (alpha >= beta)
             break;
     }
 
-    ttStore(board, depth, bestScore, originalAlpha, beta);
-    return bestScore;
-}
-
-Move findBestMove(Board &board, int depth,
-                  std::chrono::steady_clock::time_point start, double timeLimit,
-                  bool &timedOut)
-{
-    Move bestMove = Move::NULL_MOVE;
-    int bestScore = -88888;
-    int alpha = -88888;
-    int beta = 88888;
-
-    chess::Movelist moves;
-    movegen::legalmoves(moves, board);
-    std::vector<Move> orderedMoves = orderMoves(board, moves);
-    for (auto move : orderedMoves)
-    {
-        double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-        if (elapsed > timeLimit)
-        {
-            std::cout << "info string Time limit reached in find best move, stopping search\n";
-            timedOut = true;
-            break;
-        }
-
-        board.makeMove(move);
-        int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, 1, timedOut);
-        board.unmakeMove(move);
-        if (timedOut)
-            break;
-        if (score > bestScore)
-        {
-            bestScore = score;
-            bestMove = move;
-        }
-
-        alpha = std::max(alpha, score);
-        std::cout << "info score cp " << score << " pv " << uci::moveToUci(move) << "\n";
-    }
-
-    return bestMove;
+    // Store in TT
+    int flag = 0;
+    if (bestScore <= originalAlpha)
+        flag = -1; // alpha
+    else if (bestScore >= beta)
+        flag = 1; // beta
+    storeTT(board, depth, bestScore, flag, plyFromRoot);
+    return {bestScore, bestMove};
 }
 
 Move findBestMoveIterative(Board &board, int maxDepth, double totalTimeRemaining, double increment = 0.0)
 {
-    clearKillerMoves();
-    clearHistoryHeuristic();
-    TT.clear();
-
     int moveNumber = board.fullMoveNumber();
     chess::Movelist legalMoves;
     movegen::legalmoves(legalMoves, board);
@@ -686,7 +437,8 @@ Move findBestMoveIterative(Board &board, int maxDepth, double totalTimeRemaining
     {
         std::cout << "info string Searching at depth " << depth << "\n";
         bool timedOut = false;
-        Move move = findBestMove(board, depth, start, timeForMove, timedOut);
+        SearchResult result = negamaxRoot(board, depth, -MATE_SCORE, MATE_SCORE, start, timeForMove, 0, timedOut);
+        Move move = result.bestMove;
 
         if (!timedOut && std::find(legalMoves.begin(), legalMoves.end(), move) != legalMoves.end())
         {
@@ -721,19 +473,21 @@ struct Puzzle
     std::string fen;
     std::string description;
     std::string expected_best_move;
+    int requiredDepth;
 };
 
 void runPuzzleTests()
 {
     std::vector<Puzzle> puzzles = {
-        {"kbK5/pp6/1P6/8/8/8/R7/8 w - - 0 2", "mate in 2 (a2a6)", "a2a6"},
-        {"rnbqkbnr/ppp2ppp/3p4/4p3/4P1Q1/8/PPPP1PPP/RNB1KBNR b KQkq - 1 3", "black wins a queen (c8g4)", "c8g4"},
-        {"rnbqkbnr/1pp2ppp/p2p4/4p1B1/4P3/3P4/PPP2PPP/RN1QKBNR w KQkq - 0 4", "white wins a queen (g5d8)", "g5d8"},
-        {"r1b1kb1r/pppp1ppp/5q2/4n3/3KP3/2N3PN/PPP4P/R1BQ1B1R b kq - 0 1", "", "f8c5"},
-        {"1r5k/5ppp/3Q4/8/8/Prq3P1/2P1K2P/3R1R2 b - - 5 27", "", "c3e3"},
-        {"8/1Q6/2PBK3/k7/8/2P2P2/8/7q w - - 7 63", "mate in 2", "d6c7"},
-        {"r3k2r/ppp2Npp/1b5n/4p2b/2B1P2q/BQP2P2/P5PP/RN5K w kq - 1 0", "mate in 3", "c4b5"},
-        {"r2n1rk1/1ppb2pp/1p1p4/3Ppq1n/2B3P1/2P4P/PP1N1P1K/R2Q1RN1 b - - 0 1", "mate in 3", "f5f2"},
+        {"kbK5/pp6/1P6/8/8/8/R7/8 w - - 0 2", "mate in 2 (a2a6)", "a2a6", 4},
+        {"rnbqkbnr/ppp2ppp/3p4/4p3/4P1Q1/8/PPPP1PPP/RNB1KBNR b KQkq - 1 3", "black wins a queen (c8g4)", "c8g4", 6},
+        {"rnbqkbnr/1pp2ppp/p2p4/4p1B1/4P3/3P4/PPP2PPP/RN1QKBNR w KQkq - 0 4", "white wins a queen (g5d8)", "g5d8", 6},
+        {"r1b1kb1r/pppp1ppp/5q2/4n3/3KP3/2N3PN/PPP4P/R1BQ1B1R b kq - 0 1", "", "f8c5", 6},
+        {"1r5k/5ppp/3Q4/8/8/Prq3P1/2P1K2P/3R1R2 b - - 5 27", "", "c3e3", 6},
+        {"8/1Q6/2PBK3/k7/8/2P2P2/8/7q w - - 7 63", "mate in 2", "d6c7", 4},
+        {"r3k2r/ppp2Npp/1b5n/4p2b/2B1P2q/BQP2P2/P5PP/RN5K w kq - 1 0", "mate in 3", "c4b5", 6},
+        {"r2n1rk1/1ppb2pp/1p1p4/3Ppq1n/2B3P1/2P4P/PP1N1P1K/R2Q1RN1 b - - 0 1", "mate in 3", "f5f2", 6},
+        {"8/8/8/3k4/1Q1Np2p/1p2P2P/1Pp2b2/2K5 w - - 1 50", "mate in 6", "b4a5", 12},
 
     };
 
@@ -748,7 +502,7 @@ void runPuzzleTests()
 
         Board board;
         board.setFen(puzzle.fen);
-        Move bestMove = findBestMoveIterative(board, 6, 1000);
+        Move bestMove = findBestMoveIterative(board, puzzle.requiredDepth, 1000);
         std::string bestMoveUci = uci::moveToUci(bestMove);
 
         auto end = std::chrono::steady_clock::now();
@@ -772,9 +526,7 @@ void runPuzzleTests()
         std::cout << " - Expected: " << puzzle.expected_best_move << ", Got: " << bestMoveUci;
         std::cout << " | Time: " << elapsed << "s" << std::endl;
 
-        clearKillerMoves();
-        clearHistoryHeuristic();
-        TT.clear();
+        transTable.clear();
     }
 
     auto overall_end = std::chrono::steady_clock::now();
@@ -782,30 +534,6 @@ void runPuzzleTests()
 
     std::cout << "Puzzle tests passed: " << passCount << " / " << total << std::endl;
     std::cout << "Total time for all puzzles: " << overall_elapsed << "s" << std::endl;
-}
-
-void benchmarking()
-{
-
-    auto overall_start = std::chrono::steady_clock::now();
-    const int evalNum = 10000000;
-    Board board;
-    board.setFen(chess::constants::STARTPOS);
-
-    Movelist moves;
-    movegen::legalmoves(moves, board);
-    for (size_t i = 0; i < evalNum; ++i)
-    {
-        evaluateBoard(board, 0, moves);
-    }
-
-    auto end = std::chrono::steady_clock::now();
-    double elapsed = std::chrono::duration<double>(end - overall_start).count();
-
-    std::cout << "Benchmarking complete: evaluated " << evalNum << " positions in " << elapsed << " seconds." << std::endl;
-    clearKillerMoves();
-    clearHistoryHeuristic();
-    TT.clear();
 }
 
 // Main loop (UCI)
@@ -819,11 +547,11 @@ int main()
 
     // board.setFen("r1bqkbnr/pppp1ppp/3np3/8/3PPB2/2N2N2/PP3PPP/R2QKB1R b KQkq - 1 6");
     // // board.setFen("r1bqkb1r/pppp1ppp/3npn2/8/3PPB2/2N2N2/PP3PPP/R2QKB1R w KQkq - 2 7)");
-    // board.setFen("8/1Q6/2PBK3/k7/8/2P2P2/8/7q w - - 7 63");
+    // board.setFen("8/8/8/3k4/1Q1Np2p/1p2P2P/1Pp2b2/2K5 w - - 1 50");
 
     // // runPuzzleTests();
     // double timeLimit = 300.0; // seconds
-    // int maxDepth = 11;
+    // int maxDepth = 13;
     // bool timedOut = false;
     // auto start = std::chrono::steady_clock::now();
 
@@ -833,8 +561,6 @@ int main()
     // return 0;
 
     std::string line;
-    int depth = 30;
-
     // Uncomment below line to run puzzle tests before starting UCI loop
 
     while (std::getline(std::cin, line))
@@ -851,10 +577,8 @@ int main()
         }
         else if (line == "ucinewgame")
         {
-            clearKillerMoves();
-            clearHistoryHeuristic();
+            transTable.clear();
             board.setFen(chess::constants::STARTPOS);
-            TT.clear();
         }
         else if (line.rfind("position", 0) == 0)
         {
@@ -879,17 +603,16 @@ int main()
             double total_time_remaining = 5.0; // default seconds
             double increment = 0.0;
             int moveNumber = board.fullMoveNumber();
-            int searchDepth = depth;
 
             std::istringstream ss(line);
             std::string token;
             while (ss >> token)
             {
-                if (token == "depth")
-                {
-                    ss >> searchDepth;
-                }
-                else if (token == "movetime")
+                // if (token == "depth")
+                // {
+                //     ss >> MAX_DEPTH;
+                // }
+                if (token == "movetime")
                 {
                     int ms;
                     ss >> ms;
@@ -921,7 +644,7 @@ int main()
                 }
             }
 
-            Move best = findBestMoveIterative(board, searchDepth, total_time_remaining, increment);
+            Move best = findBestMoveIterative(board, MAX_DEPTH, total_time_remaining, increment);
             std::cout << "bestmove " << uci::moveToUci(best) << "\n";
         }
         else if (line == "quit")
@@ -932,11 +655,6 @@ int main()
         {
             runPuzzleTests();
             std::cout << "info string Puzzle tests complete\n";
-        }
-        else if (line == "benchmarking")
-        {
-            benchmarking();
-            std::cout << "info string benchmarking complete\n";
         }
     }
 }
