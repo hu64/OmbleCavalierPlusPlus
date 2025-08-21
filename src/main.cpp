@@ -23,14 +23,6 @@ static const PieceType ptArray[6] = {
     PieceType::QUEEN,
     PieceType::KING};
 
-struct TTEntry
-{
-    int depth;
-    int score;
-    int flag;        // 0 = exact, -1 = alpha, 1 = beta
-    int plyFromRoot; // NEW
-};
-
 // Piece-square tables (values for white, black uses mirrored)
 static const int PAWN_PST[64] = {
     0, 0, 0, 0, 0, 0, 0, 0,
@@ -114,6 +106,79 @@ int pstValue(Piece piece, Square sq)
     }
 }
 
+
+
+// Transposition table
+struct TTEntry
+{
+    int depth;
+    int value;
+    Move move;
+    enum Flag
+    {
+        EXACT,
+        LOWERBOUND,
+        UPPERBOUND
+    } flag;
+};
+std::unordered_map<uint64_t, TTEntry> TT;
+
+// Zobrist key
+inline uint64_t boardKey(const Board &board)
+{
+    return board.hash();
+}
+
+// Lookup
+std::optional<std::pair<int, Move>> ttLookup(const Board &board, int depth, int alpha, int beta, int plyFromRoot)
+{
+    auto key = boardKey(board);
+    auto it = TT.find(key);
+    if (it != TT.end())
+    {
+        const auto &e = it->second;
+        if (e.depth >= depth)
+        {
+            int val = e.value;
+            if (val > MATE_SCORE - 1000)
+                val -= plyFromRoot;
+            else if (val < -MATE_SCORE + 1000)
+                val += plyFromRoot;
+            if (e.flag == TTEntry::EXACT)
+                return std::make_pair(val, e.move);
+            else if (e.flag == TTEntry::LOWERBOUND && val > alpha)
+                alpha = val;
+            else if (e.flag == TTEntry::UPPERBOUND && val < beta)
+                beta = val;
+            if (alpha >= beta)
+                return std::make_pair(val, e.move);
+        }
+    }
+    return std::nullopt;
+}
+
+// Store
+void ttStore(const Board &board, int depth, Move move, int value, int alpha, int beta, int plyFromRoot)
+{
+    TTEntry entry;
+    entry.depth = depth;
+    // Normalize mate scores with ply distance
+    if (value > MATE_SCORE - 1000)
+        entry.value = value + plyFromRoot;
+    else if (value < -MATE_SCORE + 1000)
+        entry.value = value - plyFromRoot;
+    else
+        entry.value = value;
+    entry.move = move;
+    if (value <= alpha)
+        entry.flag = TTEntry::UPPERBOUND;
+    else if (value >= beta)
+        entry.flag = TTEntry::LOWERBOUND;
+    else
+        entry.flag = TTEntry::EXACT;
+    TT[boardKey(board)] = entry;
+}
+
 // Returns material value of a piece on a square
 int getPieceValue(const Board &board, Square sq)
 {
@@ -123,49 +188,6 @@ int getPieceValue(const Board &board, Square sq)
     return MATERIAL_VALUES[(int)piece.type()];
 }
 
-std::unordered_map<uint64_t, TTEntry> transTable;
-
-bool probeTT(const Board &board, int depth, int alpha, int beta, int &outScore, int &outPly)
-{
-    auto it = transTable.find(board.hash());
-    if (it != transTable.end())
-    {
-        const TTEntry &entry = it->second;
-        if (entry.depth >= depth)
-        {
-            outScore = entry.score;
-            outPly = entry.plyFromRoot;
-            if (entry.flag == 0)
-                return true;
-            else if (entry.flag == -1 && entry.score <= alpha)
-            {
-                outScore = alpha;
-                return true;
-            }
-            else if (entry.flag == 1 && entry.score >= beta)
-            {
-                outScore = beta;
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-void storeTT(const Board &board, int depth, int score, int flag, int plyFromRoot)
-{
-    TTEntry entry{depth, score, flag, plyFromRoot};
-    transTable[board.hash()] = entry;
-}
-
-inline int fixTTScoreForPly(int score, int storedPly, int currentPly)
-{
-    if (score > MATE_SCORE - 1000) // mate score for winning
-        return score - (storedPly - currentPly);
-    if (score < -(MATE_SCORE - 1000)) // mate score for losing
-        return score + (storedPly - currentPly);
-    return score;
-}
 std::vector<Move> orderMoves(Board &board, Movelist &moves, int plyFromRoot = 0)
 {
     std::vector<std::pair<int, Move>> scoredMoves;
@@ -233,9 +255,9 @@ int evaluateBoard(const Board &board, int plyFromRoot, Movelist &moves)
     if (moves.empty())
     {
         if (board.sideToMove() == Color::WHITE)
-            return board.inCheck() ? (MATE_SCORE - MAX_DEPTH) : 0;
+            return board.inCheck() ? (-MATE_SCORE +plyFromRoot) : 0;
         else
-            return board.inCheck() ? (MATE_SCORE - MAX_DEPTH) : 0;
+            return board.inCheck() ? (-MATE_SCORE + plyFromRoot) : 0;
     }
 
     int score = 0;
@@ -338,7 +360,73 @@ struct SearchResult
     int score;
     Move bestMove;
 };
+// Negamax search (returns only score, not move)
+int negamax(Board &board, int depth, int alpha, int beta,
+            std::chrono::steady_clock::time_point start, double timeLimit, int plyFromRoot, bool &timedOut)
+{
+    using namespace std::chrono;
+    if (timedOut)
+        return 0;
+    if (duration<double>(steady_clock::now() - start).count() > timeLimit)
+    {
+        timedOut = true;
+        return 0;
+    }
 
+    chess::Movelist legalMoves;
+    movegen::legalmoves(legalMoves, board);
+
+    auto ttVal = ttLookup(board, depth, alpha, beta, plyFromRoot);
+    if (ttVal.has_value())
+        return ttVal.value().first;
+
+    // Terminal detection
+    if (board.isRepetition(1) || board.isInsufficientMaterial())
+        return 0;
+    if (board.isHalfMoveDraw())
+        return 0;
+    if (legalMoves.empty())
+    {
+        if (board.sideToMove() == Color::WHITE)
+            return board.inCheck() ? -MATE_SCORE + plyFromRoot : 0;
+        else
+            return board.inCheck() ? -MATE_SCORE + plyFromRoot : 0;
+    }
+
+    if (depth <= 0)
+        return quiesce(board, alpha, beta, plyFromRoot+1);
+
+    int bestScore = INT_MIN;
+    Move bestMove = Move::NULL_MOVE;
+    int originalAlpha = alpha;
+
+    std::vector<Move> orderedMoves = orderMoves(board, legalMoves, plyFromRoot);
+    for (auto move : orderedMoves)
+    {
+        board.makeMove(move);
+        int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+        board.unmakeMove(move);
+
+        if (timedOut)
+            break;
+
+        if (score > bestScore)
+        {
+            bestScore = score;
+            bestMove = move;
+        }
+        if (score > alpha)
+            alpha = score;
+        if (alpha >= beta)
+            break;
+    }
+
+    ttStore(board, depth, bestMove, bestScore, originalAlpha, beta, plyFromRoot);
+
+    return bestScore;
+}
+
+// Negamax root: finds best move and score
 SearchResult negamaxRoot(Board &board, int depth, int alpha, int beta,
                          std::chrono::steady_clock::time_point start, double timeLimit, int plyFromRoot, bool &timedOut)
 {
@@ -349,12 +437,6 @@ SearchResult negamaxRoot(Board &board, int depth, int alpha, int beta,
     {
         timedOut = true;
         return {0, Move::NULL_MOVE};
-    }
-    int ttScore, ttPly;
-    if (probeTT(board, depth, alpha, beta, ttScore, ttPly))
-    {
-        ttScore = fixTTScoreForPly(ttScore, ttPly, plyFromRoot);
-        return {ttScore, Move::NULL_MOVE};
     }
 
     chess::Movelist legalMoves;
@@ -373,10 +455,6 @@ SearchResult negamaxRoot(Board &board, int depth, int alpha, int beta,
             return {board.inCheck() ? -MATE_SCORE + plyFromRoot : 0, Move::NULL_MOVE};
     }
 
-    if (depth <= 0)
-        // return {evaluateBoard(board, plyFromRoot, legalMoves), Move::NULL_MOVE};
-        return {quiesce(board, alpha, beta, plyFromRoot), Move::NULL_MOVE};
-
     int bestScore = INT_MIN;
     Move bestMove = Move::NULL_MOVE;
     int originalAlpha = alpha;
@@ -385,7 +463,7 @@ SearchResult negamaxRoot(Board &board, int depth, int alpha, int beta,
     for (auto move : orderedMoves)
     {
         board.makeMove(move);
-        int score = -negamaxRoot(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut).score;
+        int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
         board.unmakeMove(move);
 
         if (timedOut)
@@ -395,6 +473,7 @@ SearchResult negamaxRoot(Board &board, int depth, int alpha, int beta,
         {
             bestScore = score;
             bestMove = move;
+            std::cout << "info string Best move so far: " << uci::moveToUci(bestMove) << " with score " << bestScore << "\n";
         }
         if (score > alpha)
             alpha = score;
@@ -402,18 +481,14 @@ SearchResult negamaxRoot(Board &board, int depth, int alpha, int beta,
             break;
     }
 
-    // Store in TT
-    int flag = 0;
-    if (bestScore <= originalAlpha)
-        flag = -1; // alpha
-    else if (bestScore >= beta)
-        flag = 1; // beta
-    storeTT(board, depth, bestScore, flag, plyFromRoot);
+    ttStore(board, depth, bestMove, bestScore, originalAlpha, beta, plyFromRoot);
+
     return {bestScore, bestMove};
 }
 
 Move findBestMoveIterative(Board &board, int maxDepth, double totalTimeRemaining, double increment = 0.0)
 {
+    TT.clear();
     int moveNumber = board.fullMoveNumber();
     chess::Movelist legalMoves;
     movegen::legalmoves(legalMoves, board);
@@ -525,8 +600,7 @@ void runPuzzleTests()
         }
         std::cout << " - Expected: " << puzzle.expected_best_move << ", Got: " << bestMoveUci;
         std::cout << " | Time: " << elapsed << "s" << std::endl;
-
-        transTable.clear();
+        TT.clear();
     }
 
     auto overall_end = std::chrono::steady_clock::now();
@@ -536,9 +610,43 @@ void runPuzzleTests()
     std::cout << "Total time for all puzzles: " << overall_elapsed << "s" << std::endl;
 }
 
+bool runSingleTest(const std::string& fen, const std::string& expectedMove, int depth) {
+    Board board;
+    board.setFen(fen);
+    TT.clear();
+    
+    // Allocate plenty of time for the test
+    Move bestMove = findBestMoveIterative(board, depth, 60.0);
+    std::string bestMoveUci = uci::moveToUci(bestMove);
+    
+    bool passed = (bestMoveUci == expectedMove);
+    
+    if (passed) {
+        std::cout << "[PASS] Found best move: " << bestMoveUci << std::endl;
+    } else {
+        std::cout << "[FAIL] Expected: " << expectedMove << ", Got: " << bestMoveUci << std::endl;
+    }
+    
+    return passed;
+}
+
 // Main loop (UCI)
-int main()
+int main(int argc, char* argv[])
 {
+
+    // Check for test mode
+    if (argc > 1 && std::string(argv[1]) == "--test") {
+        if (argc < 5) {
+            std::cerr << "Usage: " << argv[0] << " --test [FEN] [expected_move] [depth]" << std::endl;
+            return 1;
+        }
+        std::string fen = argv[2];
+        std::string expectedMove = argv[3];
+        int depth = std::stoi(argv[4]);
+        
+        bool result = runSingleTest(fen, expectedMove, depth);
+        return result ? 0 : 1;  // Return success (0) only if test passes
+    }
 
     Board board;
 
@@ -577,8 +685,8 @@ int main()
         }
         else if (line == "ucinewgame")
         {
-            transTable.clear();
             board.setFen(chess::constants::STARTPOS);
+            TT.clear();
         }
         else if (line.rfind("position", 0) == 0)
         {
