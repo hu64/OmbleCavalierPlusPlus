@@ -463,9 +463,9 @@ int negamax(Board &board, int depth, int alpha, int beta,
     chess::Movelist legalMoves;
     movegen::legalmoves(legalMoves, board);
 
-    auto ttVal = ttLookup(board, depth, alpha, beta, plyFromRoot);
-    if (ttVal.has_value())
-        return ttVal.value().first;
+    // auto ttVal = ttLookup(board, depth, alpha, beta, plyFromRoot);
+    // if (ttVal.has_value())
+    //     return ttVal.value().first;
 
     // Terminal detection
     if (board.isRepetition(1) || board.isInsufficientMaterial())
@@ -508,7 +508,7 @@ int negamax(Board &board, int depth, int alpha, int beta,
             break;
     }
 
-    ttStore(board, depth, bestMove, bestScore, originalAlpha, beta, plyFromRoot);
+    // ttStore(board, depth, bestMove, bestScore, originalAlpha, beta, plyFromRoot);
 
     return bestScore;
 }
@@ -568,7 +568,7 @@ SearchResult negamaxRoot(Board &board, int depth, int alpha, int beta,
             break;
     }
 
-    ttStore(board, depth, bestMove, bestScore, originalAlpha, beta, plyFromRoot);
+    // ttStore(board, depth, bestMove, bestScore, originalAlpha, beta, plyFromRoot);
 
     return {bestScore, bestMove};
 }
