@@ -4,7 +4,7 @@ project(OmbleCavalier++ CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF) # optional, avoids compiler-specific extensions
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Ofast -march=native")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native")
 
 # Enable CTest
 enable_testing()
@@ -14,8 +14,15 @@ include(CTest)
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
 # Executable
-add_executable(omble_cavalier++ src/main.cpp)
-
+add_executable(omble_cavalier++
+    src/main.cpp
+    src/search.cpp
+    src/eval.cpp
+    src/tt.cpp
+    src/book.cpp
+    src/utils.cpp
+    src/puzzles.cpp
+)
 # Create individual tests for each puzzle
 add_test(NAME "Mate_in_2_a2a6" COMMAND omble_cavalier++ --test "kbK5/pp6/1P6/8/8/8/R7/8 w - - 0 2" "a2a6" 4)
 add_test(NAME "Black_wins_queen_c8g4" COMMAND omble_cavalier++ --test "rnbqkbnr/ppp2ppp/3p4/4p3/4P1Q1/8/PPPP1PPP/RNB1KBNR b KQkq - 1 3" "c8g4" 6)
