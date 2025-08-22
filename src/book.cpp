@@ -51,6 +51,28 @@ bool loadPolyglotBook(const std::string &path)
     return true;
 }
 
+// Polyglot move decoding helper
+std::string polyglotMoveToUci(uint16_t move16)
+{
+    int from = (move16 >> 6) & 0x3F;
+    int to = move16 & 0x3F;
+    int promo = (move16 >> 12) & 0x7;
+
+    std::string uci;
+    uci += 'a' + (from % 8);
+    uci += '1' + (from / 8);
+    uci += 'a' + (to % 8);
+    uci += '1' + (to / 8);
+
+    if (promo)
+    {
+        // Polyglot: 1=knight, 2=bishop, 3=rook, 4=queen
+        static const char promoChar[] = {' ', 'n', 'b', 'r', 'q'};
+        uci += promoChar[promo];
+    }
+    return uci;
+}
+
 std::optional<Move> getBookMove(const Board &board)
 {
     if (!BOOK_LOADED)
@@ -83,7 +105,7 @@ std::optional<Move> getBookMove(const Board &board)
         return std::nullopt;
 
     chess::Move chosenMove(chosen->move);
-    std::string uciMove = chess::uci::moveToUci(chosenMove);
+    std::string uciMove = polyglotMoveToUci(chosen->move);
 
     chess::Movelist legal;
     chess::movegen::legalmoves(legal, board);
