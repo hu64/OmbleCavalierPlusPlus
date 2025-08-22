@@ -15,7 +15,7 @@ struct PolyglotEntry
 
 static std::unordered_multimap<uint64_t, PolyglotEntry> BOOK;
 static bool BOOK_LOADED = false;
-static std::string BOOK_PATH = "baron30.bin";
+static std::string BOOK_PATH = "gm2001.bin";
 
 bool loadPolyglotBook(const std::string &path);
 std::optional<chess::Move> getBookMove(const chess::Board &board);
