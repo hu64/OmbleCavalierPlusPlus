@@ -95,23 +95,6 @@ int pawnStructure(const Board &board, Color color)
     return bonus - penalty;
 }
 
-// Mobility: number of legal moves for each side
-int mobility(const Board &board, Color color)
-{
-    chess::Movelist moves;
-    if (board.sideToMove() == color)
-    {
-        movegen::legalmoves(moves, board);
-    }
-    else
-    {
-        Board temp = board;
-        temp.makeNullMove();
-        movegen::legalmoves(moves, temp);
-    }
-    return moves.size();
-}
-
 // Main evaluation function: always returns score from White's perspective (positive = good for White)
 int evaluateBoard(const Board &board, int plyFromRoot, Movelist &moves)
 {

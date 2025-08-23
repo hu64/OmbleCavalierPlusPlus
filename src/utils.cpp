@@ -1,16 +1,18 @@
 #include "utils.hpp"
 #include "eval.hpp"
+#include <algorithm>
+#include <optional>
+#include <vector>
 
 using namespace chess;
 
-// utils.cpp
-#include "utils.hpp"
-
-int mirror(int idx) {
+int mirror(int idx)
+{
     return ((7 - (idx / 8)) * 8) + (idx % 8);
 }
 
-int countBits(chess::Bitboard bb) {
+int countBits(chess::Bitboard bb)
+{
 #if __cpp_lib_bitops >= 201907L
     return std::popcount(bb.getBits());
 #else
@@ -54,7 +56,23 @@ int getPieceValue(const Board &board, Square sq)
     return MATERIAL_VALUES[(int)piece.type()];
 }
 
-std::vector<Move> orderMoves(Board &board, Movelist &moves, int plyFromRoot)
+// MVV-LVA scoring for captures
+int mvvLvaScore(const Board &board, const Move &move)
+{
+    if (!board.isCapture(move))
+        return 0;
+    int victim = getPieceValue(board, move.to());
+    int attacker = getPieceValue(board, move.from());
+    return 10 * victim - attacker;
+}
+
+// Move ordering: hash move > captures (MVV-LVA) > killer moves > history > quiets
+std::vector<Move> orderMoves(
+    Board &board, Movelist &moves, int plyFromRoot,
+    const std::optional<Move> &hashMove,
+    const std::vector<Move> &killerMoves,
+    int historyHeuristic[64][64]
+)
 {
     std::vector<std::pair<int, Move>> scoredMoves;
 
@@ -62,28 +80,37 @@ std::vector<Move> orderMoves(Board &board, Movelist &moves, int plyFromRoot)
     {
         int score = 0;
 
-        board.makeMove(move);
-        bool isCheck = board.inCheck();
-        board.unmakeMove(move);
-
-        if (isCheck)
-            score = 200;
+        // 1. Hash move
+        if (hashMove && move == *hashMove)
+        {
+            score = 1000000;
+        }
+        // 2. Captures (MVV-LVA)
         else if (board.isCapture(move))
         {
-            int capturedValue = 0;
-            if (move.typeOf() == chess::Move::ENPASSANT)
-                capturedValue = MATERIAL_VALUES[(int)PieceType::PAWN];
-            else
-                capturedValue = getPieceValue(board, move.to());
-            int capturingValue = getPieceValue(board, move.from());
-            score = 100 + ((capturedValue - capturingValue) / 10);
+            score = 900000 + mvvLvaScore(board, move);
         }
-        else if (move.typeOf() == chess::Move::PROMOTION)
-            score = 90;
-        else if (move.typeOf() == chess::Move::CASTLING)
-            score = 80;
-        else if (move.typeOf() == chess::Move::ENPASSANT)
-            score = 50;
+        // 3. Killer moves
+        else if (std::find(killerMoves.begin(), killerMoves.end(), move) != killerMoves.end())
+        {
+            score = 800000;
+        }
+        // 4. History heuristic (optional)
+        else if (historyHeuristic)
+        {
+            int from = move.from().index();
+            int to = move.to().index();
+            score = 1000 + historyHeuristic[from][to];
+        }
+        else if (board.givesCheck(move) != CheckType::NO_CHECK)
+        {
+            score += 500;
+        }
+        // 5. Quiet moves
+        else
+        {
+            score = 0;
+        }
 
         scoredMoves.push_back({score, move});
     }
@@ -100,3 +127,13 @@ std::vector<Move> orderMoves(Board &board, Movelist &moves, int plyFromRoot)
 
     return ordered;
 }
+
+// Overload for legacy calls (no hash/killer/history)
+// std::vector<Move> orderMoves(Board &board, Movelist &moves, int plyFromRoot)
+// {
+//     static const std::optional<Move> noHashMove = std::nullopt;
+//     static const std::vector<Move> noKillers;
+//     static const std::vector<std::vector<int>> noHistory;
+//     return orderMoves(board, moves, plyFromRoot, noHashMove,
+//                       noKillers, noHistory);
+// }

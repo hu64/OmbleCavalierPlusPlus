@@ -58,6 +58,12 @@ static const int KING_PST[64] = {
     20, 30, 10, 0, 0, 10, 30, 20};
 
 int getPieceValue(const chess::Board &board, chess::Square sq);
-std::vector<chess::Move> orderMoves(chess::Board &board, chess::Movelist &moves, int plyFromRoot = 0);
+// std::vector<chess::Move> orderMoves(chess::Board &board, chess::Movelist &moves, int plyFromRoot = 0);
+std::vector<chess::Move> orderMoves(
+    chess::Board &board, chess::Movelist &moves, int plyFromRoot,
+    const std::optional<chess::Move>& hashMove = std::nullopt,
+    const std::vector<chess::Move>& killerMoves = {},
+    int historyHeuristic[64][64] = nullptr
+);
 int mirror(int idx);
 int countBits(chess::Bitboard bb);

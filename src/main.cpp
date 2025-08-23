@@ -4,7 +4,30 @@
 #include "tt.hpp"
 #include "book.hpp"
 #include "search.hpp"
+#include "eval.hpp"
 using namespace chess;
+
+void benchmarking()
+{
+
+    auto overall_start = std::chrono::steady_clock::now();
+    const int evalNum = 10000000;
+    Board board;
+    board.setFen(chess::constants::STARTPOS);
+
+    Movelist moves;
+    movegen::legalmoves(moves, board);
+    for (size_t i = 0; i < evalNum; ++i)
+    {
+        evaluateBoard(board, 0, moves);
+    }
+
+    auto end = std::chrono::steady_clock::now();
+    double elapsed = std::chrono::duration<double>(end - overall_start).count();
+
+    std::cout << "Benchmarking complete: evaluated " << evalNum << " positions in " << elapsed << " seconds." << std::endl;
+    TT.clear();
+}
 
 int main(int argc, char *argv[])
 {
@@ -131,6 +154,11 @@ int main(int argc, char *argv[])
         {
             runPuzzleTests();
             std::cout << "info string Puzzle tests complete\n";
+        }
+        else if (line == "benchmarking")
+        {
+            benchmarking();
+            std::cout << "info string benchmarking complete\n";
         }
     }
 }

@@ -4,6 +4,14 @@
 #include "utils.hpp"
 using namespace chess;
 
+constexpr int MAX_PLY = 128; // or whatever your max search depth is
+
+// Two killer moves per ply
+static Move killerMoves[MAX_PLY][2];
+
+// History heuristic table: [from][to]
+static int historyHeuristic[64][64];
+
 // Quiescence search with draw/mate/stalemate detection
 int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
 {
@@ -70,6 +78,26 @@ int negamax(Board &board, int depth, int alpha, int beta,
             return board.inCheck() ? -MATE_SCORE + plyFromRoot : 0;
     }
 
+    // null move pruningp
+    if (depth >= 3 && !board.inCheck())
+    {
+        int nonPawnMaterial = 0;
+        for (PieceType pt : {PieceType::KNIGHT, PieceType::BISHOP, PieceType::ROOK, PieceType::QUEEN})
+        {
+            nonPawnMaterial += MATERIAL_VALUES[(int)pt] * board.pieces(pt, board.sideToMove()).count();
+        }
+        if (nonPawnMaterial >= 2 * MATERIAL_VALUES[(int)PieceType::ROOK])
+        {
+            board.makeNullMove();
+            int nullScore = -negamax(board, depth - 3, -beta, -beta + 1, start, timeLimit, plyFromRoot + 1, timedOut);
+            board.unmakeNullMove();
+            if (timedOut)
+                return 0;
+            if (nullScore >= beta)
+                return beta;
+        }
+    }
+
     if (depth <= 0)
         return quiesce(board, alpha, beta, plyFromRoot + 1);
 
@@ -77,7 +105,12 @@ int negamax(Board &board, int depth, int alpha, int beta,
     Move bestMove = Move::NULL_MOVE;
     int originalAlpha = alpha;
 
-    std::vector<Move> orderedMoves = orderMoves(board, legalMoves, plyFromRoot);
+    std::vector<Move> orderedMoves = orderMoves(
+        board, legalMoves, plyFromRoot,
+        /*hashMove=*/std::nullopt,
+        std::vector<Move>{killerMoves[plyFromRoot][0], killerMoves[plyFromRoot][1]},
+        historyHeuristic);
+
     for (auto move : orderedMoves)
     {
         board.makeMove(move);
@@ -95,7 +128,20 @@ int negamax(Board &board, int depth, int alpha, int beta,
         if (score > alpha)
             alpha = score;
         if (alpha >= beta)
+        {
+            // Killer moves: only for non-captures
+            if (!board.isCapture(move))
+            {
+                if (killerMoves[plyFromRoot][0] != move)
+                {
+                    killerMoves[plyFromRoot][1] = killerMoves[plyFromRoot][0];
+                    killerMoves[plyFromRoot][0] = move;
+                }
+                // History heuristic: only for quiet moves
+                historyHeuristic[move.from().index()][move.to().index()] += depth * depth;
+            }
             break;
+        }
     }
 
     ttStore(board, depth, bestMove, bestScore, originalAlpha, beta, plyFromRoot);
@@ -136,7 +182,12 @@ SearchResult negamaxRoot(Board &board, int depth, int alpha, int beta,
     Move bestMove = Move::NULL_MOVE;
     int originalAlpha = alpha;
 
-    std::vector<Move> orderedMoves = orderMoves(board, legalMoves, plyFromRoot);
+    std::vector<Move> orderedMoves = orderMoves(
+        board, legalMoves, plyFromRoot,
+        /*hashMove=*/std::nullopt,
+        std::vector<Move>{killerMoves[plyFromRoot][0], killerMoves[plyFromRoot][1]},
+        historyHeuristic);
+
     for (auto move : orderedMoves)
     {
         board.makeMove(move);
@@ -165,6 +216,16 @@ SearchResult negamaxRoot(Board &board, int depth, int alpha, int beta,
 
 Move findBestMoveIterative(Board &board, int maxDepth, double totalTimeRemaining, double increment)
 {
+    // Clear killer moves and history heuristic
+    for (int i = 0; i < MAX_PLY; ++i)
+    {
+        killerMoves[i][0] = Move::NULL_MOVE;
+        killerMoves[i][1] = Move::NULL_MOVE;
+    }
+    for (int i = 0; i < 64; ++i)
+        for (int j = 0; j < 64; ++j)
+            historyHeuristic[i][j] = 0;
+
     TT.clear();
     int moveNumber = board.fullMoveNumber();
     chess::Movelist legalMoves;
