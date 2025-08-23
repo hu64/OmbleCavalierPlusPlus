@@ -1,7 +1,7 @@
 #pragma once
 #include "chess.hpp"
 
-static const int MATERIAL_VALUES[6] = {100, 320, 330, 500, 900, 0};
+static const int MATERIAL_VALUES[6] = {100, 320, 330, 500, 900, 6000};
 static const int MATE_SCORE = 69000;
 
 static const chess::PieceType ptArray[6] = {

@@ -119,45 +119,35 @@ int evaluateBoard(const Board &board, int plyFromRoot, Movelist &moves)
     // }
 
     // Material and PST
+    // Fast material and PST evaluation
     for (Color color : {Color::WHITE, Color::BLACK})
     {
         int colorSign = (color == Color::WHITE) ? 1 : -1;
         for (size_t i = 0; i < 6; ++i)
         {
             PieceType pt = ptArray[i];
-            // Count material
-
             chess::Bitboard bb = board.pieces(pt, color);
             int pieceValue = MATERIAL_VALUES[static_cast<int>(pt)];
+            const int* pst = nullptr;
+            switch (static_cast<int>(pt))
+            {
+            case static_cast<int>(PieceType::PAWN):   pst = PAWN_PST; break;
+            case static_cast<int>(PieceType::KNIGHT): pst = KNIGHT_PST; break;
+            case static_cast<int>(PieceType::BISHOP): pst = BISHOP_PST; break;
+            case static_cast<int>(PieceType::ROOK):   pst = ROOK_PST; break;
+            case static_cast<int>(PieceType::QUEEN):  pst = QUEEN_PST; break;
+            case static_cast<int>(PieceType::KING):   pst = KING_PST; break;
+            default: break;
+            }
             while (bb)
             {
                 int sq = bb.lsb();
                 bb.clear(sq);
                 score += colorSign * pieceValue;
-                // PST: mirror for black
-                int pstIdx = (color == Color::WHITE) ? sq : mirror(sq);
-                switch (pt)
+                if (pst)
                 {
-                case (int)PieceType::PAWN:
-                    score += colorSign * PAWN_PST[pstIdx];
-                    break;
-                case (int)PieceType::KNIGHT:
-                    score += colorSign * KNIGHT_PST[pstIdx];
-                    break;
-                case (int)PieceType::BISHOP:
-                    score += colorSign * BISHOP_PST[pstIdx];
-                    break;
-                case (int)PieceType::ROOK:
-                    score += colorSign * ROOK_PST[pstIdx];
-                    break;
-                case (int)PieceType::QUEEN:
-                    score += colorSign * QUEEN_PST[pstIdx];
-                    break;
-                case (int)PieceType::KING:
-                    score += colorSign * KING_PST[pstIdx];
-                    break;
-                default:
-                    break;
+                    int pstIdx = (color == Color::WHITE) ? sq : mirror(sq);
+                    score += colorSign * pst[pstIdx];
                 }
             }
         }
