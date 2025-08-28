@@ -71,8 +71,7 @@ std::vector<Move> orderMoves(
     Board &board, Movelist &moves, int plyFromRoot,
     const std::optional<Move> &hashMove,
     const std::vector<Move> &killerMoves,
-    int historyHeuristic[64][64]
-)
+    int historyHeuristic[64][64])
 {
     std::vector<std::pair<int, Move>> scoredMoves;
 
@@ -128,12 +127,34 @@ std::vector<Move> orderMoves(
     return ordered;
 }
 
-// Overload for legacy calls (no hash/killer/history)
-// std::vector<Move> orderMoves(Board &board, Movelist &moves, int plyFromRoot)
-// {
-//     static const std::optional<Move> noHashMove = std::nullopt;
-//     static const std::vector<Move> noKillers;
-//     static const std::vector<std::vector<int>> noHistory;
-//     return orderMoves(board, moves, plyFromRoot, noHashMove,
-//                       noKillers, noHistory);
-// }
+void orderMovesInPlace(
+    Board &board, Movelist &moves, int plyFromRoot,
+    const std::optional<Move> &hashMove,
+    const std::vector<Move> &killerMoves,
+    int historyHeuristic[64][64])
+{
+    auto moveScore = [&](const Move &move) -> int
+    {
+        int score = 0;
+        if (hashMove && move == *hashMove)
+            score = 1000000;
+        else if (board.isCapture(move))
+            score = 900000 + mvvLvaScore(board, move);
+        else if ((!killerMoves.empty() && move == killerMoves[0]) ||
+                 (killerMoves.size() > 1 && move == killerMoves[1]))
+            score = 800000;
+        else if (historyHeuristic)
+            score = 1000 + historyHeuristic[move.from().index()][move.to().index()];
+        else if (board.givesCheck(move) != CheckType::NO_CHECK)
+            score += 500;
+        else
+            score = 0;
+        return score;
+    };
+
+    std::sort(moves.begin(), moves.end(),
+              [&](const Move &a, const Move &b)
+              {
+                  return moveScore(a) > moveScore(b);
+              });
+}

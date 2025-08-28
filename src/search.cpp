@@ -105,13 +105,13 @@ int negamax(Board &board, int depth, int alpha, int beta,
     Move bestMove = Move::NULL_MOVE;
     int originalAlpha = alpha;
 
-    std::vector<Move> orderedMoves = orderMoves(
+    orderMovesInPlace(
         board, legalMoves, plyFromRoot,
         /*hashMove=*/std::nullopt,
         std::vector<Move>{killerMoves[plyFromRoot][0], killerMoves[plyFromRoot][1]},
         historyHeuristic);
 
-    for (auto move : orderedMoves)
+    for (auto move : legalMoves)
     {
         board.makeMove(move);
         int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
@@ -182,13 +182,13 @@ SearchResult negamaxRoot(Board &board, int depth, int alpha, int beta,
     Move bestMove = Move::NULL_MOVE;
     int originalAlpha = alpha;
 
-    std::vector<Move> orderedMoves = orderMoves(
+    orderMovesInPlace(
         board, legalMoves, plyFromRoot,
         /*hashMove=*/std::nullopt,
         std::vector<Move>{killerMoves[plyFromRoot][0], killerMoves[plyFromRoot][1]},
         historyHeuristic);
 
-    for (auto move : orderedMoves)
+    for (auto move : legalMoves)
     {
         board.makeMove(move);
         int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
