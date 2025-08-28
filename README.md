@@ -1,6 +1,10 @@
 # ♞ OmbleCavalierPlusPlus
 *A modern C++ Chess Engine*
 
+<p align="center">
+  <img src="https://i.imgur.com/uKg8ni4.png" alt="OmbleCavalierPlusPlus anime fish chess" width="150"/>
+</p>
+
 ---
 ## Play me on Lichess.org
 
