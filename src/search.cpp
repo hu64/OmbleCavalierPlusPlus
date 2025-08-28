@@ -2,6 +2,7 @@
 #include "eval.hpp"
 #include "tt.hpp"
 #include "utils.hpp"
+#include <climits>
 using namespace chess;
 
 constexpr int MAX_PLY = 128; // or whatever your max search depth is
