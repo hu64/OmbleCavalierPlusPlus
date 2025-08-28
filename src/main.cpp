@@ -26,12 +26,19 @@ void benchmarking()
     double elapsed = std::chrono::duration<double>(end - overall_start).count();
 
     std::cout << "Benchmarking complete: evaluated " << evalNum << " positions in " << elapsed << " seconds." << std::endl;
+
+    auto overall_start2 = std::chrono::steady_clock::now();
+    auto end2 = std::chrono::steady_clock::now();
+    double elapsed2 = std::chrono::duration<double>(end2 - overall_start2).count();
+    std::cout << "Benchmarking complete: searched to depth 14 in " << elapsed << " seconds." << std::endl;
+    findBestMoveIterative(board, 14, 1000.0);
+
     TT.clear();
 }
 
 int main(int argc, char *argv[])
 {
-
+    // benchmarking();
     // Check for test mode
     if (argc > 1 && std::string(argv[1]) == "--test")
     {

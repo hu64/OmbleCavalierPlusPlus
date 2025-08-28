@@ -61,9 +61,13 @@ int getPieceValue(const chess::Board &board, chess::Square sq);
 // std::vector<chess::Move> orderMoves(chess::Board &board, chess::Movelist &moves, int plyFromRoot = 0);
 std::vector<chess::Move> orderMoves(
     chess::Board &board, chess::Movelist &moves, int plyFromRoot,
-    const std::optional<chess::Move>& hashMove = std::nullopt,
-    const std::vector<chess::Move>& killerMoves = {},
-    int historyHeuristic[64][64] = nullptr
-);
+    const std::optional<chess::Move> &hashMove = std::nullopt,
+    const std::vector<chess::Move> &killerMoves = {},
+    int historyHeuristic[64][64] = nullptr);
+void orderMovesInPlace(
+    chess::Board &board, chess::Movelist &moves, int plyFromRoot,
+    const std::optional<chess::Move> &hashMove,
+    const std::vector<chess::Move> &killerMoves,
+    int historyHeuristic[64][64]);
 int mirror(int idx);
 int countBits(chess::Bitboard bb);
