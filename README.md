@@ -2,7 +2,7 @@
 *A modern C++ Chess Engine*
 
 <p align="center">
-  <img src="https://i.imgur.com/zhaKbyY.png" alt="OmbleCavalierPlusPlus anime fish chess" width="150"/>
+  <img src="https://i.imgur.com/zhaKbyY.png" alt="OmbleCavalierPlusPlus anime fish chess" width="250"/>
 </p>
 
 ---
