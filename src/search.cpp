@@ -112,10 +112,32 @@ int negamax(Board &board, int depth, int alpha, int beta,
         std::vector<Move>{killerMoves[plyFromRoot][0], killerMoves[plyFromRoot][1]},
         historyHeuristic);
 
+    int moveCount = 0;
     for (auto move : legalMoves)
     {
+        bool isCapture = board.isCapture(move);
+        bool isPromotion = move.typeOf() == Move::PROMOTION;
+        bool givesCheck = board.givesCheck(move) != CheckType::NO_CHECK;
+        int reduction = 0;
+
+        // LMR: Reduce only for quiet moves, not first move, not in check, not check, not promotion, not capture
+        if (depth >= 3 && moveCount > 0 && !isCapture && !isPromotion && !givesCheck && !board.inCheck())
+            reduction = 1;
+
         board.makeMove(move);
-        int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+        int score;
+        if (reduction > 0)
+        {
+            // Reduced-depth search with null window
+            score = -negamax(board, depth - 1 - reduction, -alpha - 1, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+            // If it improves alpha, re-search at full depth
+            if (score > alpha)
+                score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+        }
+        else
+        {
+            score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+        }
         board.unmakeMove(move);
 
         if (timedOut)
@@ -131,7 +153,7 @@ int negamax(Board &board, int depth, int alpha, int beta,
         if (alpha >= beta)
         {
             // Killer moves: only for non-captures
-            if (!board.isCapture(move))
+            if (!isCapture)
             {
                 if (killerMoves[plyFromRoot][0] != move)
                 {
@@ -143,6 +165,7 @@ int negamax(Board &board, int depth, int alpha, int beta,
             }
             break;
         }
+        moveCount++;
     }
 
     ttStore(board, depth, bestMove, bestScore, originalAlpha, beta, plyFromRoot);
