@@ -23,6 +23,13 @@ add_executable(omble_cavalier++
     src/utils.cpp
     src/puzzles.cpp
 )
+
+add_executable(test_pawnstructure
+    src/test_pawnstructure.cpp
+    src/eval.cpp
+    src/utils.cpp
+)
+
 # Create individual tests for each puzzle
 add_test(NAME "Mate_in_2_a2a6" COMMAND omble_cavalier++ --test "kbK5/pp6/1P6/8/8/8/R7/8 w - - 0 2" "a2a6" 4)
 add_test(NAME "Black_wins_queen_c8g4" COMMAND omble_cavalier++ --test "rnbqkbnr/ppp2ppp/3p4/4p3/4P1Q1/8/PPPP1PPP/RNB1KBNR b KQkq - 1 3" "c8g4" 6)
@@ -33,6 +40,14 @@ add_test(NAME "Mate_in_2_d6c7" COMMAND omble_cavalier++ --test "8/1Q6/2PBK3/k7/8
 add_test(NAME "Mate_in_3_c4b5" COMMAND omble_cavalier++ --test "r3k2r/ppp2Npp/1b5n/4p2b/2B1P2q/BQP2P2/P5PP/RN5K w kq - 1 0" "c4b5" 6)
 add_test(NAME "Mate_in_3_f5f2" COMMAND omble_cavalier++ --test "r2n1rk1/1ppb2pp/1p1p4/3Ppq1n/2B3P1/2P4P/PP1N1P1K/R2Q1RN1 b - - 0 1" "f5f2" 6)
 add_test(NAME "Mate_in_6_b4a5" COMMAND omble_cavalier++ --test "8/8/8/3k4/1Q1Np2p/1p2P2P/1Pp2b2/2K5 w - - 1 50" "b4a5" 12)
+add_test(NAME testDoubledPawnsWhite COMMAND test_pawnstructure testDoubledPawnsWhite)
+add_test(NAME testDoubledPawnsBlack COMMAND test_pawnstructure testDoubledPawnsBlack)
+add_test(NAME testIsolatedPawnsWhite COMMAND test_pawnstructure testIsolatedPawnsWhite)
+add_test(NAME testIsolatedPawnsBlack COMMAND test_pawnstructure testIsolatedPawnsBlack)
+add_test(NAME testPassedPawnsWhite COMMAND test_pawnstructure testPassedPawnsWhite)
+add_test(NAME testPassedPawnsBlack COMMAND test_pawnstructure testPassedPawnsBlack)
+add_test(NAME testPassedPawnsBlackBlockedbyKnight COMMAND test_pawnstructure testPassedPawnsBlackBlockedbyKnight)
+
 
 # Run all tests at once
 add_custom_target(run_all_tests

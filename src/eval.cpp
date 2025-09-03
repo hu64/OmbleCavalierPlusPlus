@@ -38,23 +38,39 @@ int kingSafety(const Board &board, Color color)
     }
     return penalty;
 }
-
 // Pawn structure: doubled, isolated, passed pawns
 int pawnStructure(const Board &board, Color color)
 {
     int penalty = 0, bonus = 0;
-    chess::Bitboard pawns = board.pieces(PieceType::PAWN, color);
 
-    // Doubled pawns
+    // Use the helper functions for each feature
+    penalty += 12 * countDoubledPawns(board, color);
+    penalty += 15 * countIsolatedPawns(board, color);
+    bonus   += 20 * countPassedPawns(board, color);
+
+    return bonus - penalty;
+}
+
+// Count doubled pawns for a color
+int countDoubledPawns(const Board &board, Color color)
+{
+    int doubled = 0;
+    chess::Bitboard pawns = board.pieces(PieceType::PAWN, color);
     for (int f = 0; f < 8; ++f)
     {
         chess::Bitboard filePawns = pawns & chess::Bitboard(File(f));
         int count = countBits(filePawns);
         if (count > 1)
-            penalty += 12 * (count - 1);
+            doubled += (count - 1);
     }
+    return doubled;
+}
 
-    // Isolated pawns
+// Count isolated pawns for a color
+int countIsolatedPawns(const Board &board, Color color)
+{
+    int isolated = 0;
+    chess::Bitboard pawns = board.pieces(PieceType::PAWN, color);
     for (int f = 0; f < 8; ++f)
     {
         chess::Bitboard filePawns = pawns & chess::Bitboard(File(f));
@@ -63,11 +79,18 @@ int pawnStructure(const Board &board, Color color)
         bool hasLeft = (f > 0) && (pawns & chess::Bitboard(File(f - 1)));
         bool hasRight = (f < 7) && (pawns & chess::Bitboard(File(f + 1)));
         if (!hasLeft && !hasRight)
-            penalty += 15 * countBits(filePawns);
+            isolated += countBits(filePawns);
     }
+    return isolated;
+}
 
-    // Passed pawns
-    chess::Bitboard oppPawns = board.pieces(PieceType::PAWN, ~color);
+// Count passed pawns for a color
+int countPassedPawns(const Board &board, Color color)
+{
+    int passed = 0;
+    chess::Bitboard pawns = board.pieces(PieceType::PAWN, color);
+    chess::Bitboard allPawns = board.pieces(PieceType::PAWN, Color::WHITE) | board.pieces(PieceType::PAWN, Color::BLACK);
+
     for (int sq = 0; sq < 64; ++sq)
     {
         if (!pawns.check(sq))
@@ -80,19 +103,37 @@ int pawnStructure(const Board &board, Color color)
             int f = file + df;
             if (f < 0 || f > 7)
                 continue;
-            for (int r = (color == Color::WHITE ? rank + 1 : 0);
-                 (color == Color::WHITE ? r < 8 : r < rank);
-                 r += (color == Color::WHITE ? 1 : 1))
+            if (color == Color::WHITE)
             {
-                int idx = f + r * 8;
-                if (oppPawns.check(idx))
-                    isPassed = false;
+                for (int r = rank + 1; r < 8; ++r)
+                {
+                    int idx = f + r * 8;
+                    if (allPawns.check(idx))
+                    {
+                        isPassed = false;
+                        break;
+                    }
+                }
             }
+            else // BLACK
+            {
+                for (int r = rank - 1; r >= 0; --r)
+                {
+                    int idx = f + r * 8;
+                    if (allPawns.check(idx))
+                    {
+                        isPassed = false;
+                        break;
+                    }
+                }
+            }
+            if (!isPassed)
+                break;
         }
         if (isPassed)
-            bonus += 20;
+            passed++;
     }
-    return bonus - penalty;
+    return passed;
 }
 
 // Main evaluation function: always returns score from White's perspective (positive = good for White)
@@ -128,16 +169,29 @@ int evaluateBoard(const Board &board, int plyFromRoot, Movelist &moves)
             PieceType pt = ptArray[i];
             chess::Bitboard bb = board.pieces(pt, color);
             int pieceValue = MATERIAL_VALUES[static_cast<int>(pt)];
-            const int* pst = nullptr;
+            const int *pst = nullptr;
             switch (static_cast<int>(pt))
             {
-            case static_cast<int>(PieceType::PAWN):   pst = PAWN_PST; break;
-            case static_cast<int>(PieceType::KNIGHT): pst = KNIGHT_PST; break;
-            case static_cast<int>(PieceType::BISHOP): pst = BISHOP_PST; break;
-            case static_cast<int>(PieceType::ROOK):   pst = ROOK_PST; break;
-            case static_cast<int>(PieceType::QUEEN):  pst = QUEEN_PST; break;
-            case static_cast<int>(PieceType::KING):   pst = KING_PST; break;
-            default: break;
+            case static_cast<int>(PieceType::PAWN):
+                pst = PAWN_PST;
+                break;
+            case static_cast<int>(PieceType::KNIGHT):
+                pst = KNIGHT_PST;
+                break;
+            case static_cast<int>(PieceType::BISHOP):
+                pst = BISHOP_PST;
+                break;
+            case static_cast<int>(PieceType::ROOK):
+                pst = ROOK_PST;
+                break;
+            case static_cast<int>(PieceType::QUEEN):
+                pst = QUEEN_PST;
+                break;
+            case static_cast<int>(PieceType::KING):
+                pst = KING_PST;
+                break;
+            default:
+                break;
             }
             while (bb)
             {
@@ -166,8 +220,8 @@ int evaluateBoard(const Board &board, int plyFromRoot, Movelist &moves)
     }
 
     // Pawn structure
-    // score += pawnStructure(board, Color::WHITE);
-    // score -= pawnStructure(board, Color::BLACK);
+    score += pawnStructure(board, Color::WHITE);
+    score -= pawnStructure(board, Color::BLACK);
 
     // King safety
     score -= kingSafety(board, Color::WHITE);

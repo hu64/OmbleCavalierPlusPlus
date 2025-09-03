@@ -16,3 +16,6 @@ int evaluateBoard(const chess::Board &board, int plyFromRoot, chess::Movelist &m
 int pawnStructure(const chess::Board &board, chess::Color color);
 int kingSafety(const chess::Board &board, chess::Color color);
 int mobility(const chess::Board &board, chess::Color color);
+int countDoubledPawns(const chess::Board &board, chess::Color color);
+int countIsolatedPawns(const chess::Board &board, chess::Color color);
+int countPassedPawns(const chess::Board &board, chess::Color color);
