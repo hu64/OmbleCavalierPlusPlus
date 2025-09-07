@@ -247,12 +247,57 @@ Move findBestMoveIterative(Board &board, int maxDepth, double totalTimeRemaining
     }
 
     Move bestMove = legalMoves[0];
+    int prevScore = 0;
+
     for (int depth = 1; depth <= maxDepth; ++depth)
     {
         std::cout << "info string Searching at depth " << depth << "\n";
         bool timedOut = false;
-        SearchResult result = negamaxRoot(board, depth, -MATE_SCORE, MATE_SCORE, start, timeForMove, 0, timedOut);
-        Move move = result.bestMove;
+
+        int window = 50; // centipawns
+        int alpha = std::max(-MATE_SCORE, prevScore - window);
+        int beta = std::min(MATE_SCORE, prevScore + window);
+        SearchResult result;
+        Move move;
+
+        // Aspiration window loop
+        while (true)
+        {
+            result = negamaxRoot(board, depth, alpha, beta, start, timeForMove, 0, timedOut);
+            move = result.bestMove;
+
+            if (timedOut)
+            {
+                std::cout << "info string Search interrupted by time, keeping previous best move\n";
+                break;
+            }
+
+            if (result.score <= alpha)
+            {
+                // Fail-low: widen window down
+                alpha = std::max(-MATE_SCORE, alpha - window);
+                beta = std::min(MATE_SCORE, beta);
+                window *= 2;
+                std::cout << "info string Aspiration window fail-low, widening window\n";
+                continue;
+            }
+            else if (result.score >= beta)
+            {
+                // Fail-high: widen window up
+                alpha = std::max(-MATE_SCORE, alpha);
+                beta = std::min(MATE_SCORE, beta + window);
+                window *= 2;
+                std::cout << "info string Aspiration window fail-high, widening window\n";
+                continue;
+            }
+            else
+            {
+                // Score within window
+                break;
+            }
+        }
+
+        prevScore = result.score;
 
         if (!timedOut && std::find(legalMoves.begin(), legalMoves.end(), move) != legalMoves.end())
         {
