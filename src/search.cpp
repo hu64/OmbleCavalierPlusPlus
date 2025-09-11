@@ -112,10 +112,26 @@ int negamax(Board &board, int depth, int alpha, int beta,
         std::vector<Move>{killerMoves[plyFromRoot][0], killerMoves[plyFromRoot][1]},
         historyHeuristic);
 
+    int moveCount = 0;
     for (auto move : legalMoves)
     {
         board.makeMove(move);
-        int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+        int score;
+        if (moveCount == 0)
+        {
+            // First move: full window search
+            score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+        }
+        else
+        {
+            // PVS: null window search
+            score = -negamax(board, depth - 1, -alpha - 1, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+            // If it improves alpha, re-search with full window
+            if (score > alpha && score < beta)
+            {
+                score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+            }
+        }
         board.unmakeMove(move);
 
         if (timedOut)
@@ -143,6 +159,7 @@ int negamax(Board &board, int depth, int alpha, int beta,
             }
             break;
         }
+        moveCount++;
     }
 
     ttStore(board, depth, bestMove, bestScore, originalAlpha, beta, plyFromRoot);
