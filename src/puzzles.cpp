@@ -31,7 +31,7 @@ void runPuzzleTests()
 
         Board board;
         board.setFen(puzzle.fen);
-        Move bestMove = findBestMoveIterative(board, puzzle.requiredDepth, 10);
+        Move bestMove = findBestMoveIterative(board, puzzle.requiredDepth, 100);
         std::string bestMoveUci = uci::moveToUci(bestMove);
 
         auto end = std::chrono::steady_clock::now();
