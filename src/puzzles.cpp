@@ -16,7 +16,8 @@ void runPuzzleTests()
         {"r3k2r/ppp2Npp/1b5n/4p2b/2B1P2q/BQP2P2/P5PP/RN5K w kq - 1 0", "mate in 3", "c4b5", 6},
         {"r2n1rk1/1ppb2pp/1p1p4/3Ppq1n/2B3P1/2P4P/PP1N1P1K/R2Q1RN1 b - - 0 1", "mate in 3", "f5f2", 6},
         {"8/8/8/3k4/1Q1Np2p/1p2P2P/1Pp2b2/2K5 w - - 1 50", "mate in 6", "b4a5", 12},
-
+        {"2r1k3/1Q3pp1/2p1p3/B1b4q/8/3p2P1/1P4K1/R2R4 b - - 15 40", "draw", "h5e2", 6},
+       
     };
 
     int passCount = 0;
@@ -30,7 +31,7 @@ void runPuzzleTests()
 
         Board board;
         board.setFen(puzzle.fen);
-        Move bestMove = findBestMoveIterative(board, puzzle.requiredDepth, 1000);
+        Move bestMove = findBestMoveIterative(board, puzzle.requiredDepth, 10);
         std::string bestMoveUci = uci::moveToUci(bestMove);
 
         auto end = std::chrono::steady_clock::now();

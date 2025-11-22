@@ -63,8 +63,12 @@ int negamax(Board &board, int depth, int alpha, int beta,
     movegen::legalmoves(legalMoves, board);
 
     auto ttVal = ttLookup(board, depth, alpha, beta, plyFromRoot);
+    std::optional<Move> hashMove = std::nullopt;
     if (ttVal.has_value())
+    {
+        hashMove = ttVal.value().second;
         return ttVal.value().first;
+    }
 
     // Terminal detection
     if (board.isRepetition(1) || board.isInsufficientMaterial())
@@ -108,14 +112,34 @@ int negamax(Board &board, int depth, int alpha, int beta,
 
     orderMovesInPlace(
         board, legalMoves, plyFromRoot,
-        /*hashMove=*/std::nullopt,
+        hashMove,
         std::vector<Move>{killerMoves[plyFromRoot][0], killerMoves[plyFromRoot][1]},
         historyHeuristic);
 
+    int moveCount = 0;
     for (auto move : legalMoves)
     {
+        bool isCapture = board.isCapture(move);
+        bool isPromotion = move.typeOf() == Move::PROMOTION;
+        bool givesCheck = board.givesCheck(move) != CheckType::NO_CHECK;
+        int reduction = 0;
+
+        // LMR: reduce for quiet, non-first moves at sufficient depth
+        if (depth >= 3 && moveCount >= 3 && !isCapture && !isPromotion && !givesCheck && !board.inCheck())
+            reduction = 1;
+
         board.makeMove(move);
-        int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+        int score;
+        if (reduction > 0)
+        {
+            score = -negamax(board, depth - 1 - reduction, -alpha - 1, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+            if (score > alpha)
+                score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+        }
+        else
+        {
+            score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
+        }
         board.unmakeMove(move);
 
         if (timedOut)
@@ -143,6 +167,7 @@ int negamax(Board &board, int depth, int alpha, int beta,
             }
             break;
         }
+        moveCount++;
     }
 
     ttStore(board, depth, bestMove, bestScore, originalAlpha, beta, plyFromRoot);

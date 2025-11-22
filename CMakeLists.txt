@@ -40,6 +40,7 @@ add_test(NAME "Mate_in_2_d6c7" COMMAND omble_cavalier++ --test "8/1Q6/2PBK3/k7/8
 add_test(NAME "Mate_in_3_c4b5" COMMAND omble_cavalier++ --test "r3k2r/ppp2Npp/1b5n/4p2b/2B1P2q/BQP2P2/P5PP/RN5K w kq - 1 0" "c4b5" 6)
 add_test(NAME "Mate_in_3_f5f2" COMMAND omble_cavalier++ --test "r2n1rk1/1ppb2pp/1p1p4/3Ppq1n/2B3P1/2P4P/PP1N1P1K/R2Q1RN1 b - - 0 1" "f5f2" 6)
 add_test(NAME "Mate_in_6_b4a5" COMMAND omble_cavalier++ --test "8/8/8/3k4/1Q1Np2p/1p2P2P/1Pp2b2/2K5 w - - 1 50" "b4a5" 12)
+add_test(NAME "draw_h5e2" COMMAND omble_cavalier++ --test "2r1k3/1Q3pp1/2p1p3/B1b4q/8/3p2P1/1P4K1/R2R4 b - - 15 40" "h5e2" 6)
 add_test(NAME testDoubledPawnsWhite COMMAND test_pawnstructure testDoubledPawnsWhite)
 add_test(NAME testDoubledPawnsBlack COMMAND test_pawnstructure testDoubledPawnsBlack)
 add_test(NAME testIsolatedPawnsWhite COMMAND test_pawnstructure testIsolatedPawnsWhite)
