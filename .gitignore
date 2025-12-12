@@ -68,3 +68,4 @@ CMakeUserPresets.json
 
 build/*
 .vscode/settings.json
+versions/gm2001.bin
