@@ -46,7 +46,7 @@ int pawnStructure(const Board &board, Color color)
     // Use the helper functions for each feature
     penalty += 12 * countDoubledPawns(board, color);
     penalty += 15 * countIsolatedPawns(board, color);
-    bonus   += 20 * countPassedPawns(board, color);
+    bonus += 20 * countPassedPawns(board, color);
 
     return bonus - penalty;
 }
@@ -219,6 +219,29 @@ int evaluateBoard(const Board &board, int plyFromRoot, Movelist &moves)
         }
     }
 
+    // Castling: prefer keeping castling rights and being castled
+    const int CASTLING_RIGHTS_BONUS = 40;
+    const int CASTLED_BONUS = 60;
+    for (Color color : {Color::WHITE, Color::BLACK})
+    {
+        int sign = (color == Color::WHITE) ? 1 : -1;
+        auto cr = board.castlingRights();
+        if (cr.has(color))
+            score += sign * CASTLING_RIGHTS_BONUS; // value for retaining castling rights
+
+        // Bonus if king already castled (on g1/c1 or g8/c8)
+        Square kingSq = board.kingSq(color);
+        int kfile = kingSq.file();
+        int krank = kingSq.rank();
+        bool isCastled = false;
+        if (color == Color::WHITE && krank == 0 && (kfile == 6 || kfile == 2))
+            isCastled = true;
+        if (color == Color::BLACK && krank == 7 && (kfile == 6 || kfile == 2))
+            isCastled = true;
+        if (isCastled)
+            score += sign * CASTLED_BONUS;
+    }
+
     // Pawn structure
     score += pawnStructure(board, Color::WHITE);
     score -= pawnStructure(board, Color::BLACK);
@@ -228,7 +251,7 @@ int evaluateBoard(const Board &board, int plyFromRoot, Movelist &moves)
     score += kingSafety(board, Color::BLACK);
 
     // Mobility
-    score += (board.sideToMove() == Color::WHITE ? 1 : -1) * (moves.size() * 5);
+    score += (moves.size() * 5);
 
     if (board.sideToMove() == Color::BLACK)
         score = -score;

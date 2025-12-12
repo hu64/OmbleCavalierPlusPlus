@@ -66,12 +66,76 @@ int mvvLvaScore(const Board &board, const Move &move)
     return 10 * victim - attacker;
 }
 
+// Simple Static Exchange Evaluation (greedy recapture sequence on a board copy)
+int staticExchangeEvaluation(Board board, Move move)
+{
+    using namespace chess;
+    const int INF = 1000000;
+    Square sq = move.to();
+    Color us = board.sideToMove();
+
+    // initial captured value (0 if no capture)
+    int captured = getPieceValue(board, sq);
+
+    // make the initial capture on a copy
+    board.makeMove(move);
+
+    std::vector<int> gains;
+    gains.push_back(captured);
+
+    Color stm = board.sideToMove();
+    // loop capturing the victim greedily by least-value attackers
+    while (true)
+    {
+        auto attackers = attacks::attackers(board, stm, sq);
+        if (!attackers)
+            break;
+
+        // find least valuable attacker
+        int fromSq = -1;
+        int bestVal = INF;
+        for (auto pt : {PieceType::PAWN, PieceType::KNIGHT, PieceType::BISHOP, PieceType::ROOK, PieceType::QUEEN, PieceType::KING})
+        {
+            auto bb = board.pieces(pt, stm) & attackers;
+            if (bb)
+            {
+                int sqi = bb.lsb();
+                int val = MATERIAL_VALUES[static_cast<int>(pt)];
+                if (val < bestVal)
+                {
+                    bestVal = val;
+                    fromSq = sqi;
+                }
+            }
+        }
+        if (fromSq < 0)
+            break;
+
+        // make the capture (from -> to)
+        Square fromSqSquare(fromSq);
+        Move cap = Move::make<Move::NORMAL>(fromSqSquare, sq);
+        board.makeMove(cap);
+
+        // the value gained on this ply is the value of the piece that was captured
+        gains.push_back(bestVal);
+        stm = board.sideToMove();
+    }
+
+    // minimax the capture sequence values
+    for (int i = (int)gains.size() - 2; i >= 0; --i)
+    {
+        gains[i] = std::max(-gains[i + 1], gains[i]);
+    }
+
+    return gains.empty() ? 0 : gains[0];
+}
+
 // Move ordering: hash move > captures (MVV-LVA) > killer moves > history > quiets
 std::vector<Move> orderMoves(
     Board &board, Movelist &moves, int plyFromRoot,
     const std::optional<Move> &hashMove,
     const std::vector<Move> &killerMoves,
-    int historyHeuristic[64][64])
+    long long historyHeuristic[64][64])
 {
     std::vector<std::pair<int, Move>> scoredMoves;
 
@@ -87,7 +151,12 @@ std::vector<Move> orderMoves(
         // 2. Captures (MVV-LVA)
         else if (board.isCapture(move))
         {
-            score = 900000 + mvvLvaScore(board, move);
+            // penalize obviously losing captures using SEE
+            int seeVal = staticExchangeEvaluation(board, move);
+            if (seeVal < 0)
+                score = 300000 + mvvLvaScore(board, move); // deprioritize bad captures
+            else
+                score = 900000 + mvvLvaScore(board, move);
         }
         // 3. Killer moves
         else if (std::find(killerMoves.begin(), killerMoves.end(), move) != killerMoves.end())
@@ -131,7 +200,7 @@ void orderMovesInPlace(
     Board &board, Movelist &moves, int plyFromRoot,
     const std::optional<Move> &hashMove,
     const std::vector<Move> &killerMoves,
-    int historyHeuristic[64][64])
+    long long historyHeuristic[64][64])
 {
     auto moveScore = [&](const Move &move) -> int
     {

@@ -63,11 +63,13 @@ std::vector<chess::Move> orderMoves(
     chess::Board &board, chess::Movelist &moves, int plyFromRoot,
     const std::optional<chess::Move> &hashMove = std::nullopt,
     const std::vector<chess::Move> &killerMoves = {},
-    int historyHeuristic[64][64] = nullptr);
+    long long historyHeuristic[64][64] = nullptr);
 void orderMovesInPlace(
     chess::Board &board, chess::Movelist &moves, int plyFromRoot,
     const std::optional<chess::Move> &hashMove,
     const std::vector<chess::Move> &killerMoves,
-    int historyHeuristic[64][64]);
+    long long historyHeuristic[64][64]);
 int mirror(int idx);
 int countBits(chess::Bitboard bb);
+// Static Exchange Evaluation: positive = good for the side making the capture
+int staticExchangeEvaluation(chess::Board board, chess::Move move);

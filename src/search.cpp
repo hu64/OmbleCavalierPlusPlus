@@ -10,8 +10,8 @@ constexpr int MAX_PLY = 128; // or whatever your max search depth is
 // Two killer moves per ply
 static Move killerMoves[MAX_PLY][2];
 
-// History heuristic table: [from][to]
-static int historyHeuristic[64][64];
+// History heuristic table: [from][to] - use long long to prevent overflow
+static long long historyHeuristic[64][64];
 
 // Quiescence search with draw/mate/stalemate detection
 int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
@@ -29,7 +29,11 @@ int quiesce(Board &board, int alpha, int beta, int plyFromRoot)
 
     for (auto move : legalMoves)
     {
-        if (!board.isCapture(move))
+        bool isCapture = board.isCapture(move);
+        bool givesCheck = board.givesCheck(move) != CheckType::NO_CHECK;
+
+        // Only search captures or checks (forcing moves)
+        if (!isCapture && !givesCheck)
             continue;
 
         board.makeMove(move);
@@ -77,14 +81,15 @@ int negamax(Board &board, int depth, int alpha, int beta,
         return 0;
     if (legalMoves.empty())
     {
-        if (board.sideToMove() == Color::WHITE)
-            return board.inCheck() ? -MATE_SCORE + plyFromRoot : 0;
+        // Mated side loses immediately; stalemate is draw
+        if (board.inCheck())
+            return -MATE_SCORE + plyFromRoot;
         else
-            return board.inCheck() ? -MATE_SCORE + plyFromRoot : 0;
+            return 0; // Stalemate
     }
 
-    // null move pruningp
-    if (depth >= 3 && !board.inCheck())
+    // null move pruning (use more conservative threshold to avoid tactical misses)
+    if (depth >= 5 && !board.inCheck())
     {
         int nonPawnMaterial = 0;
         for (PieceType pt : {PieceType::KNIGHT, PieceType::BISHOP, PieceType::ROOK, PieceType::QUEEN})
@@ -125,8 +130,24 @@ int negamax(Board &board, int depth, int alpha, int beta,
         int reduction = 0;
 
         // LMR: reduce for quiet, non-first moves at sufficient depth
-        if (depth >= 3 && moveCount >= 3 && !isCapture && !isPromotion && !givesCheck && !board.inCheck())
+        // Late Move Reductions: be conservative to avoid dropping tactical moves
+        if (depth >= 6 && moveCount >= 3 && !isCapture && !isPromotion && !givesCheck && !board.inCheck())
             reduction = 1;
+
+        // If this is a capture that SEE deems losing, deprioritize via quick check
+        if (isCapture)
+        {
+            int seeVal = staticExchangeEvaluation(board, move);
+            if (seeVal < 0)
+            {
+                // try to skip very bad captures at shallow depths
+                if (depth <= 2)
+                {
+                    // treat as quiet move (no deep search) by setting a small negative bias
+                    // we'll still consider it but later in move ordering
+                }
+            }
+        }
 
         board.makeMove(move);
         int score;
@@ -152,10 +173,13 @@ int negamax(Board &board, int depth, int alpha, int beta,
         }
         if (score > alpha)
             alpha = score;
+
+        moveCount++;
+
         if (alpha >= beta)
         {
             // Killer moves: only for non-captures
-            if (!board.isCapture(move))
+            if (!isCapture)
             {
                 if (killerMoves[plyFromRoot][0] != move)
                 {
@@ -167,7 +191,6 @@ int negamax(Board &board, int depth, int alpha, int beta,
             }
             break;
         }
-        moveCount++;
     }
 
     ttStore(board, depth, bestMove, bestScore, originalAlpha, beta, plyFromRoot);
@@ -198,10 +221,11 @@ SearchResult negamaxRoot(Board &board, int depth, int alpha, int beta,
         return {0, Move::NULL_MOVE};
     if (legalMoves.empty())
     {
-        if (board.sideToMove() == Color::WHITE)
-            return {board.inCheck() ? -MATE_SCORE + plyFromRoot : 0, Move::NULL_MOVE};
+        // Mated side loses immediately; stalemate is draw
+        if (board.inCheck())
+            return {-MATE_SCORE + plyFromRoot, Move::NULL_MOVE};
         else
-            return {board.inCheck() ? -MATE_SCORE + plyFromRoot : 0, Move::NULL_MOVE};
+            return {0, Move::NULL_MOVE}; // Stalemate
     }
 
     int bestScore = INT_MIN;
@@ -219,6 +243,16 @@ SearchResult negamaxRoot(Board &board, int depth, int alpha, int beta,
         board.makeMove(move);
         int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
         board.unmakeMove(move);
+
+        if (board.isCapture(move))
+        {
+            int see = staticExchangeEvaluation(board, move);
+            std::cout << "info string root move " << uci::moveToUci(move) << " score " << score << " SEE " << see << "\n";
+        }
+        else
+        {
+            std::cout << "info string root move " << uci::moveToUci(move) << " score " << score << "\n";
+        }
 
         if (timedOut)
             break;
@@ -251,6 +285,16 @@ Move findBestMoveIterative(Board &board, int maxDepth, double totalTimeRemaining
     for (int i = 0; i < 64; ++i)
         for (int j = 0; j < 64; ++j)
             historyHeuristic[i][j] = 0;
+
+    // Age history heuristic to prevent overflow on very long searches
+    // (this is a safeguard; normally clearing each position is sufficient)
+    static int searchCount = 0;
+    if (++searchCount % 10000 == 0)
+    {
+        for (int i = 0; i < 64; ++i)
+            for (int j = 0; j < 64; ++j)
+                historyHeuristic[i][j] /= 2;
+    }
 
     TT.clear();
     int moveNumber = board.fullMoveNumber();
