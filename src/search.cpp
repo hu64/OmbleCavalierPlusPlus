@@ -134,21 +134,6 @@ int negamax(Board &board, int depth, int alpha, int beta,
         if (depth >= 6 && moveCount >= 3 && !isCapture && !isPromotion && !givesCheck && !board.inCheck())
             reduction = 1;
 
-        // If this is a capture that SEE deems losing, deprioritize via quick check
-        if (isCapture)
-        {
-            int seeVal = staticExchangeEvaluation(board, move);
-            if (seeVal < 0)
-            {
-                // try to skip very bad captures at shallow depths
-                if (depth <= 2)
-                {
-                    // treat as quiet move (no deep search) by setting a small negative bias
-                    // we'll still consider it but later in move ordering
-                }
-            }
-        }
-
         board.makeMove(move);
         int score;
         if (reduction > 0)
@@ -244,15 +229,7 @@ SearchResult negamaxRoot(Board &board, int depth, int alpha, int beta,
         int score = -negamax(board, depth - 1, -beta, -alpha, start, timeLimit, plyFromRoot + 1, timedOut);
         board.unmakeMove(move);
 
-        if (board.isCapture(move))
-        {
-            int see = staticExchangeEvaluation(board, move);
-            std::cout << "info string root move " << uci::moveToUci(move) << " score " << score << " SEE " << see << "\n";
-        }
-        else
-        {
-            std::cout << "info string root move " << uci::moveToUci(move) << " score " << score << "\n";
-        }
+        std::cout << "info string root move " << uci::moveToUci(move) << " score " << score << "\n";
 
         if (timedOut)
             break;

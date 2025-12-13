@@ -86,8 +86,7 @@ std::optional<Move> getBookMove(const Board &board)
     uint64_t total = 0;
     for (auto it = range.first; it != range.second; ++it)
         total += std::max<uint16_t>(1, it->second.weight);
-    std::random_device rd;
-    std::mt19937_64 gen(rd());
+    static std::mt19937_64 gen((uint64_t)std::chrono::high_resolution_clock::now().time_since_epoch().count());
     std::uniform_int_distribution<uint64_t> dist(1, total);
     uint64_t pick = dist(gen);
     const PolyglotEntry *chosen = nullptr;
